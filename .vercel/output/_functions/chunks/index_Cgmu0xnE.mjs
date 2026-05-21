@@ -1,0 +1,108 @@
+import { c as createComponent } from './astro-component_BfP70hli.mjs';
+import 'piccolore';
+import { l as renderComponent, r as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_Di8hritT.mjs';
+import { $ as $$DashboardLayout } from './DashboardLayout__BO0mkrC.mjs';
+
+const $$Index = createComponent(async ($$result, $$props, $$slots) => {
+  const Astro2 = $$result.createAstro($$props, $$slots);
+  Astro2.self = $$Index;
+  const API_URL = "http://localhost:5145";
+  const operadorId = Astro2.cookies.get("id_operador")?.value ?? Astro2.cookies.get("operador_id")?.value;
+  if (!operadorId || operadorId === "undefined" || operadorId === "null") {
+    return Astro2.redirect("/");
+  }
+  async function safeFetch(url) {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      if (!res.ok || !text || text.trim() === "") {
+        console.log(`HTTP ${res.status} o respuesta vacía: ${url}`);
+        return { success: false, data: null, count: 0 };
+      }
+      return JSON.parse(text);
+    } catch (e) {
+      console.log(`Error en fetch ${url}:`, e);
+      return { success: false, data: null, count: 0 };
+    }
+  }
+  const solicitudesData = await safeFetch(
+    `${API_URL}/api/solicitudes-cotizacion?pageSize=100`
+  );
+  const todasSolicitudes = solicitudesData.data ?? [];
+  const totalSolicitudes = solicitudesData.pagination?.total ?? todasSolicitudes.length;
+  const solicitudesPendientes = todasSolicitudes.filter(
+    (s) => s.estado_solicitud === "pendiente"
+  ).length;
+  const cotizacionesData = await safeFetch(`${API_URL}/api/cotizaciones?pageSize=1`);
+  const totalCotizaciones = cotizacionesData.pagination?.total ?? 0;
+  const pedidosData = await safeFetch(`${API_URL}/api/pedidos-credito?pageSize=1`);
+  const totalPedidos = pedidosData.pagination?.total ?? 0;
+  const solicitudes = todasSolicitudes.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
+  function getStatusStyle(status) {
+    switch (status?.toLowerCase()) {
+      case "pendiente":
+        return { class: "bg-amber-100 text-amber-700", icon: "schedule" };
+      case "atendida":
+      case "en proceso":
+      case "en_proceso":
+        return { class: "bg-blue-100 text-blue-700", icon: "autorenew" };
+      case "aceptada":
+        return { class: "bg-emerald-100 text-emerald-700", icon: "verified" };
+      case "completada":
+      case "completado":
+        return { class: "bg-emerald-100 text-emerald-700", icon: "check_circle" };
+      case "rechazada":
+        return { class: "bg-red-100 text-red-700", icon: "cancel" };
+      case "requiere_reasignacion":
+        return { class: "bg-orange-100 text-orange-700", icon: "swap_horiz" };
+      default:
+        return { class: "bg-surface-container-highest text-on-surface-variant", icon: "help" };
+    }
+  }
+  function getUrgencyStyle(urgency) {
+    switch (urgency?.toLowerCase()) {
+      case "alta":
+        return "text-error font-bold";
+      case "media":
+        return "text-tertiary font-semibold";
+      case "baja":
+        return "text-outline font-medium";
+      default:
+        return "text-outline";
+    }
+  }
+  function timeAgo(dateStr) {
+    if (!dateStr) return "";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 6e4);
+    if (mins < 60) return `hace ${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `hace ${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    return `hace ${days}d`;
+  }
+  return renderTemplate`${renderComponent($$result, "DashboardLayout", $$DashboardLayout, { "title": "Dashboard · Operadores" }, { "default": async ($$result2) => renderTemplate` ${maybeRenderHead()}<div class="p-8 space-y-8"> <!-- Hero Header --> <section> <h2 class="font-headline text-3xl font-extrabold text-on-surface tracking-tight">Panel de Operaciones</h2> <p class="text-on-surface-variant mt-1 font-medium">Estado en tiempo real de solicitudes, cotizaciones y pedidos.</p> </section> <!-- Bento Grid Stats --> <div class="grid grid-cols-12 gap-6"> <!-- Total Solicitudes --> <div class="col-span-12 md:col-span-3 bg-surface-container-lowest p-6 rounded-xl flex flex-col justify-between group hover:bg-surface-bright transition-all duration-300"> <div class="flex justify-between items-start"> <div class="p-3 bg-primary/5 rounded-xl"> <span class="material-symbols-outlined text-primary">mail</span> </div> </div> <div class="mt-8"> <p class="text-outline font-semibold text-xs uppercase tracking-widest">Solicitudes</p> <h3 class="font-headline text-4xl font-extrabold text-on-surface mt-1">${totalSolicitudes ?? 0}</h3> <p class="text-[11px] text-on-surface-variant mt-2">Total de solicitudes recibidas</p> </div> </div> <!-- Pendientes --> <div class="col-span-12 md:col-span-3 bg-surface-container-lowest p-6 rounded-xl flex flex-col justify-between group hover:bg-surface-bright transition-all duration-300"> <div class="flex justify-between items-start"> <div class="p-3 bg-error/5 rounded-xl"> <span class="material-symbols-outlined text-error">priority_high</span> </div> ${(solicitudesPendientes ?? 0) > 0 && renderTemplate`<span class="flex items-center gap-1 text-error text-xs font-bold bg-error/10 px-2 py-1 rounded-full">
+Requiere atención
+</span>`} </div> <div class="mt-8"> <p class="text-outline font-semibold text-xs uppercase tracking-widest">Pendientes</p> <h3 class="font-headline text-4xl font-extrabold text-on-surface mt-1">${solicitudesPendientes ?? 0}</h3> <p class="text-[11px] text-on-surface-variant mt-2">Solicitudes sin atender</p> </div> </div> <!-- Cotizaciones --> <div class="col-span-12 md:col-span-3 bg-surface-container-lowest p-6 rounded-xl flex flex-col justify-between group hover:bg-surface-bright transition-all duration-300"> <div class="flex justify-between items-start"> <div class="p-3 bg-secondary/5 rounded-xl"> <span class="material-symbols-outlined text-secondary">receipt_long</span> </div> </div> <div class="mt-8"> <p class="text-outline font-semibold text-xs uppercase tracking-widest">Cotizaciones</p> <h3 class="font-headline text-4xl font-extrabold text-on-surface mt-1">${totalCotizaciones ?? 0}</h3> <p class="text-[11px] text-on-surface-variant mt-2">Cotizaciones generadas</p> </div> </div> <!-- Pedidos --> <div class="col-span-12 md:col-span-3 bg-surface-container-lowest p-6 rounded-xl flex flex-col justify-between group hover:bg-surface-bright transition-all duration-300"> <div class="flex justify-between items-start"> <div class="p-3 bg-tertiary/5 rounded-xl"> <span class="material-symbols-outlined text-tertiary">package_2</span> </div> </div> <div class="mt-8"> <p class="text-outline font-semibold text-xs uppercase tracking-widest">Pedidos</p> <h3 class="font-headline text-4xl font-extrabold text-on-surface mt-1">${totalPedidos ?? 0}</h3> <p class="text-[11px] text-on-surface-variant mt-2">Pedidos generados</p> </div> </div> </div> <!-- Middle Section --> <div class="grid grid-cols-12 gap-6"> <!-- Recent Solicitudes Table --> <div class="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-1 overflow-hidden"> <div class="p-6 flex justify-between items-center"> <h4 class="font-headline text-xl font-bold text-on-surface">Solicitudes Recientes</h4> <a href="/dashboard/solicitudes" class="text-sm font-semibold text-primary-container bg-primary/5 px-4 py-2 rounded-lg hover:bg-primary/10 transition-colors">Ver Todas</a> </div> <table class="w-full text-left border-collapse"> <thead> <tr class="bg-surface-container-low text-outline font-semibold text-[11px] uppercase tracking-widest"> <th class="px-6 py-4">Cliente</th> <th class="px-6 py-4">Artículo</th> <th class="px-6 py-4">Urgencia</th> <th class="px-6 py-4">Estado</th> <th class="px-6 py-4 text-right">Acción</th> </tr> </thead> <tbody class="divide-y divide-outline-variant/10"> ${solicitudes.length === 0 ? renderTemplate`<tr> <td colspan="5" class="px-6 py-12 text-center text-outline"> <span class="material-symbols-outlined text-4xl block mb-2 opacity-30">inbox</span>
+No hay solicitudes aún.
+</td> </tr>` : solicitudes.map((sol) => {
+    const status = getStatusStyle(sol.estado_solicitud);
+    const idCorto = sol.id_solicitud_cotizacion?.slice(0, 8).toUpperCase() ?? "—";
+    return renderTemplate`<tr class="hover:bg-surface-container-low/50 transition-colors group"> <td class="px-6 py-5"> <div class="flex items-center gap-3"> <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary-fixed text-on-primary-fixed">
+#
+</div> <div> <span class="text-sm font-medium text-on-surface block font-mono">${idCorto}</span> <span class="text-[10px] text-outline">${timeAgo(sol.created_at)}</span> </div> </div> </td> <td class="px-6 py-5 text-sm text-on-surface-variant"> ${sol.productos?.length > 0 ? `${sol.productos.length} producto(s)` : "Sin productos"} </td> <td class="px-6 py-5"> <span${addAttribute(`text-xs uppercase tracking-wider ${getUrgencyStyle(sol.nivel_urgencia)}`, "class")}> ${sol.nivel_urgencia || "—"} </span> </td> <td class="px-6 py-5"> <span${addAttribute(`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${status.class}`, "class")}> <span class="material-symbols-outlined text-xs">${status.icon}</span> ${sol.estado_solicitud || "sin estado"} </span> </td> <td class="px-6 py-5 text-right"> <a href="/dashboard/solicitudes" class="p-2 rounded-lg hover:bg-primary/5 text-outline group-hover:text-primary transition-all inline-block"> <span class="material-symbols-outlined">open_in_new</span> </a> </td> </tr>`;
+  })} </tbody> </table> </div> <!-- Right column: Quick Actions + Performance --> <div class="col-span-12 lg:col-span-4 space-y-6"> <!-- Quick Actions --> <div class="bg-surface-container-lowest rounded-xl p-6 relative overflow-hidden"> <div class="relative z-10"> <h4 class="font-headline text-lg font-bold text-on-surface">Acciones Rápidas</h4> <p class="text-xs text-outline font-medium mt-1">Lo que puedes hacer ahora</p> <div class="mt-6 space-y-3"> <a href="/dashboard/solicitudes" class="flex items-center gap-3 p-3 bg-primary/5 rounded-xl hover:bg-primary/10 transition-colors group"> <span class="material-symbols-outlined text-primary">assignment</span> <span class="text-sm font-semibold text-on-surface group-hover:text-primary">Ver Solicitudes Pendientes</span> </a> <a href="/dashboard/marketplace" class="flex items-center gap-3 p-3 bg-secondary/5 rounded-xl hover:bg-secondary/10 transition-colors group"> <span class="material-symbols-outlined text-secondary">search</span> <span class="text-sm font-semibold text-on-surface group-hover:text-secondary">Buscar en Catálogo</span> </a> <a href="/dashboard/pedidos" class="flex items-center gap-3 p-3 bg-tertiary/5 rounded-xl hover:bg-tertiary/10 transition-colors group"> <span class="material-symbols-outlined text-tertiary">inventory_2</span> <span class="text-sm font-semibold text-on-surface group-hover:text-tertiary">Mis Pedidos</span> </a> </div> </div> <div class="absolute -bottom-4 -right-4 opacity-5"> <span class="material-symbols-outlined text-9xl">support_agent</span> </div> </div> <!-- Operator Info --> <div class="bg-primary-container text-on-primary-container rounded-xl p-6 bg-gradient-to-br from-primary to-primary-container shadow-lg"> <h4 class="font-headline text-lg font-bold">Panel del Operador</h4> <div class="mt-6 space-y-4"> <div> <p class="text-[10px] uppercase font-bold opacity-70 tracking-wider">Tu Rol</p> <p class="text-lg font-headline font-extrabold">Operador</p> </div> <div> <p class="text-[10px] uppercase font-bold opacity-70 tracking-wider">Flujo de Trabajo</p> <p class="text-sm opacity-90 mt-1">Recibe solicitudes → Busca productos → Crea cotizaciones → Genera pedidos</p> </div> </div> </div> </div> </div> </div>  <footer class="px-8 py-6 border-t border-[#c0c7d0]/10 flex justify-between items-center text-[11px] text-outline font-medium uppercase tracking-widest"> <div>© 2026 Operadores · Panel de Gestión</div> <div class="flex gap-6"> <a href="#" class="hover:text-primary transition-colors">Soporte</a> </div> </footer> ` })}`;
+}, "/home/peterolvera/Documents/Proyectos/astro-webOperadores/src/pages/dashboard/index.astro", void 0);
+const $$file = "/home/peterolvera/Documents/Proyectos/astro-webOperadores/src/pages/dashboard/index.astro";
+const $$url = "/dashboard";
+
+const _page = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
+  __proto__: null,
+  default: $$Index,
+  file: $$file,
+  url: $$url
+}, Symbol.toStringTag, { value: 'Module' }));
+
+const page = () => _page;
+
+export { page };

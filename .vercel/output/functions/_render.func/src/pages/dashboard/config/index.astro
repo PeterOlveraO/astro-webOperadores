@@ -1,0 +1,699 @@
+---
+import DashboardLayout from "../../../layouts/DashboardLayout.astro";
+
+const operadorId = Astro.cookies.get("id_operador")?.value;
+if (!operadorId || operadorId === "undefined" || operadorId === "null") {
+    return Astro.redirect("/");
+}
+
+const isAdmin = Astro.cookies.get("operador_is_admin")?.value === "true";
+if (!isAdmin) {
+    return Astro.redirect("/dashboard");
+}
+
+const operadorEmail = decodeURIComponent(
+    Astro.cookies.get("operador_email")?.value ?? "",
+);
+
+const API_URL = import.meta.env.PUBLIC_API_URL || "http://localhost:5145";
+
+async function safeFetch(url: string) {
+    try {
+        const res = await fetch(url);
+        const text = await res.text();
+        if (!res.ok || !text || text.trim() === "") {
+            return { success: false, data: null };
+        }
+        return JSON.parse(text);
+    } catch (e) {
+        return { success: false, data: null };
+    }
+}
+
+const operadoresData = await safeFetch(`${API_URL}/api/operadores`);
+const operadores: any[] = operadoresData.data ?? [];
+
+function formatDate(dateStr: string) {
+    if (!dateStr) return "—";
+    return new Date(dateStr).toLocaleDateString("es-MX", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+}
+---
+
+<DashboardLayout title="Configuración · Operadores">
+    <div class="p-8 space-y-8">
+        <!-- Header -->
+        <div class="flex justify-between items-start">
+            <div>
+                <nav class="flex items-center gap-2 text-sm text-outline mb-4">
+                    <a
+                        href="/dashboard"
+                        class="hover:text-primary transition-colors"
+                        >Dashboard</a
+                    >
+                    <span class="material-symbols-outlined text-xs"
+                        >chevron_right</span
+                    >
+                    <span class="text-primary font-medium">Configuración</span>
+                </nav>
+                <h1
+                    class="font-headline text-4xl font-extrabold text-on-surface tracking-tight"
+                >
+                    Gestión de Operadores
+                </h1>
+                <p class="text-on-surface-variant mt-1">
+                    Administra las cuentas de operadores del sistema.
+                </p>
+            </div>
+            <button
+                id="btn-nuevo-operador"
+                class="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+            >
+                <span class="material-symbols-outlined text-xl">person_add</span
+                >
+                Nuevo Operador
+            </button>
+        </div>
+
+        <!-- Search -->
+        <div class="relative max-w-md">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">search</span>
+            <input
+                type="text"
+                id="input-buscar"
+                placeholder="Buscar operador por nombre o email..."
+                class="w-full pl-12 pr-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-6">
+            <div class="bg-surface-container-lowest rounded-xl p-5">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center"
+                    >
+                        <span class="material-symbols-outlined text-primary"
+                            >group</span
+                        >
+                    </div>
+                    <div>
+                        <p
+                            class="text-outline text-xs font-semibold uppercase tracking-widest"
+                        >
+                            Total
+                        </p>
+                        <p
+                            class="font-headline text-2xl font-extrabold text-on-surface"
+                        >
+                            {operadores.length}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest rounded-xl p-5">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center"
+                    >
+                        <span class="material-symbols-outlined text-emerald-600"
+                            >check_circle</span
+                        >
+                    </div>
+                    <div>
+                        <p
+                            class="text-outline text-xs font-semibold uppercase tracking-widest"
+                        >
+                            Activos
+                        </p>
+                        <p
+                            class="font-headline text-2xl font-extrabold text-on-surface"
+                        >
+                            {operadores.filter((o) => o.activo).length}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest rounded-xl p-5">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center"
+                    >
+                        <span class="material-symbols-outlined text-red-600"
+                            >cancel</span
+                        >
+                    </div>
+                    <div>
+                        <p
+                            class="text-outline text-xs font-semibold uppercase tracking-widest"
+                        >
+                            Inactivos
+                        </p>
+                        <p
+                            class="font-headline text-2xl font-extrabold text-on-surface"
+                        >
+                            {operadores.filter((o) => !o.activo).length}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="flex gap-4 items-center">
+            <span class="text-sm text-outline font-semibold">Filtrar:</span>
+            <div class="flex gap-2">
+                <button class="filter-op-btn px-4 py-2 rounded-lg text-sm font-medium bg-primary text-white" data-filter="all">
+                    Todos ({operadores.length})
+                </button>
+                <button class="filter-op-btn px-4 py-2 rounded-lg text-sm font-medium bg-surface-container-lowest text-on-surface hover:bg-surface-container-low transition-colors" data-filter="true">
+                    Activos ({operadores.filter(o => o.activo).length})
+                </button>
+                <button class="filter-op-btn px-4 py-2 rounded-lg text-sm font-medium bg-surface-container-lowest text-on-surface hover:bg-surface-container-low transition-colors" data-filter="false">
+                    Inactivos ({operadores.filter(o => !o.activo).length})
+                </button>
+            </div>
+        </div>
+
+        <!-- Operators Table -->
+        <div class="bg-surface-container-lowest rounded-xl overflow-hidden">
+            <div
+                class="px-6 py-5 border-b border-outline-variant/10 flex justify-between items-center"
+            >
+                <h2 class="font-headline text-lg font-bold text-on-surface">
+                    Lista de Operadores
+                </h2>
+                <span class="text-sm text-outline" id="count-display"
+                    >{operadores.length} operadores</span
+                >
+            </div>
+
+            {
+                operadores.length === 0 ? (
+                    <div class="px-6 py-16 text-center text-outline">
+                        <span class="material-symbols-outlined text-6xl block mb-4 opacity-20">
+                            group_off
+                        </span>
+                        <p class="text-lg font-semibold">
+                            No hay operadores registrados
+                        </p>
+                        <p class="text-sm mt-1">
+                            Crea el primer operador usando el botón "Nuevo
+                            Operador"
+                        </p>
+                    </div>
+                ) : (
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="bg-surface-container-low text-outline text-xs font-bold uppercase tracking-widest">
+                                    <th class="px-6 py-4">Operador</th>
+                                    <th class="px-6 py-4">Email</th>
+                                    <th class="px-6 py-4 text-center">Admin</th>
+                                    <th class="px-6 py-4 text-center">
+                                        Estado
+                                    </th>
+                                    <th class="px-6 py-4 text-center">
+                                        Fecha Creación
+                                    </th>
+                                    <th class="px-6 py-4 text-right">
+                                        Acciones
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-outline-variant/10">
+                                {operadores.map((op: any) => (
+                                    <tr class="operador-row hover:bg-surface-container-low/50 transition-colors" data-activo={op.activo}>
+                                        <td class="px-6 py-5">
+                                            <div class="flex items-center gap-3">
+                                                <div
+                                                    class={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${op.activo ? "bg-primary text-white" : "bg-surface-container-highest text-outline"}`}
+                                                >
+                                                    {op.nombre?.charAt(0) ||
+                                                        op.email?.charAt(0) ||
+                                                        "?"}
+                                                </div>
+                                                <div>
+                                                    <p class="font-semibold text-on-surface">
+                                                        {op.nombre}{" "}
+                                                        {op.apellido || ""}
+                                                    </p>
+                                                    <p class="text-xs text-outline font-mono">
+                                                        {op.id_operadores?.slice(
+                                                            0,
+                                                            8,
+                                                        ) || "—"}
+                                                        ...
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-5">
+                                            <p class="text-sm text-on-surface">
+                                                {op.email || "—"}
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-5 text-center">
+                                            {op.is_admin ? (
+                                                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
+                                                    <span class="material-symbols-outlined text-xs">
+                                                        verified
+                                                    </span>
+                                                    Sí
+                                                </span>
+                                            ) : (
+                                                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-surface-container-highest text-outline">
+                                                    No
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td class="px-6 py-5 text-center">
+                                            {op.activo ? (
+                                                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+                                                    <span class="material-symbols-outlined text-xs">
+                                                        check_circle
+                                                    </span>
+                                                    Activo
+                                                </span>
+                                            ) : (
+                                                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                                                    <span class="material-symbols-outlined text-xs">
+                                                        cancel
+                                                    </span>
+                                                    Inactivo
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td class="px-6 py-5 text-center">
+                                            <p class="text-sm text-outline">
+                                                {formatDate(op.created_at)}
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-5 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button
+                                                    class="btn-toggle-estado p-2 rounded-lg hover:bg-surface-container-low transition-colors"
+                                                    data-id={op.id_operadores}
+                                                    data-activo={op.activo}
+                                                    title={
+                                                        op.activo
+                                                            ? "Desactivar operador"
+                                                            : "Activar operador"
+                                                    }
+                                                >
+                                                    {op.activo ? (
+                                                        <span class="material-symbols-outlined text-error">
+                                                            person_off
+                                                        </span>
+                                                    ) : (
+                                                        <span class="material-symbols-outlined text-emerald-600">
+                                                            person_pin
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            }
+        </div>
+    </div>
+
+    <!-- Modal Nuevo Operador -->
+    <dialog id="modal-nuevo-operador" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <div class="modal-icon">
+                        <span class="material-symbols-outlined text-2xl"
+                            >person_add</span
+                        >
+                    </div>
+                    <div>
+                        <h3 class="font-headline text-lg font-bold">
+                            Nuevo Operador
+                        </h3>
+                    </div>
+                </div>
+                <button id="btn-cerrar-modal" class="modal-close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="form-nuevo-operador" class="space-y-4">
+                    <div>
+                        <label
+                            class="block text-sm font-semibold text-on-surface mb-2"
+                            >Nombre</label
+                        >
+                        <input
+                            type="text"
+                            id="input-nombre"
+                            required
+                            class="w-full px-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="Nombre del operador"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            class="block text-sm font-semibold text-on-surface mb-2"
+                            >Apellido</label
+                        >
+                        <input
+                            type="text"
+                            id="input-apellido"
+                            class="w-full px-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="Apellido (opcional)"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            class="block text-sm font-semibold text-on-surface mb-2"
+                            >Email</label
+                        >
+                        <input
+                            type="email"
+                            id="input-email"
+                            required
+                            class="w-full px-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="email@ejemplo.com"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            class="block text-sm font-semibold text-on-surface mb-2"
+                            >Contraseña</label
+                        >
+                        <input
+                            type="password"
+                            id="input-password"
+                            required
+                            minlength="6"
+                            class="w-full px-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="Mínimo 6 caracteres"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            class="block text-sm font-semibold text-on-surface mb-2"
+                            >Teléfono</label
+                        >
+                        <input
+                            type="tel"
+                            id="input-telefono"
+                            class="w-full px-4 py-3 rounded-xl border border-outline-variant/30 bg-surface-container-low text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="55 1234 5678"
+                        />
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            id="input-is-admin"
+                            class="w-5 h-5 rounded border-outline-variant"
+                        />
+                        <label
+                            for="input-is-admin"
+                            class="text-sm font-medium text-on-surface"
+                        >
+                            ¿Es administrador?
+                        </label>
+                    </div>
+                    <div class="pt-4">
+                        <button
+                            type="submit"
+                            id="btn-crear-operador"
+                            class="w-full py-3 rounded-xl font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <span class="material-symbols-outlined">save</span>
+                            Crear Operador
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <style>
+                .modal {
+                    background: transparent;
+                    border: none;
+                    padding: 0;
+                    max-width: 480px;
+                    width: 95vw;
+                    max-height: 95vh;
+                    overflow: hidden;
+                    margin: auto;
+                }
+                .modal::backdrop {
+                    background: rgba(0, 0, 0, 0.7);
+                    backdrop-filter: blur(8px);
+                }
+                .modal[open] {
+                    animation: modalFadeIn 0.25s
+                        cubic-bezier(0.34, 1.56, 0.64, 1);
+                }
+                @keyframes modalFadeIn {
+                    from {
+                        opacity: 0;
+                        transform: scale(0.9) translateY(20px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: scale(1) translateY(0);
+                    }
+                }
+                .modal-content {
+                    background: var(--color-surface-container-lowest, #fefefe);
+                    border-radius: 1.5rem;
+                    overflow: hidden;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+                }
+                .modal-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1.5rem;
+                    background: var(--color-primary, #6750a1);
+                    color: white;
+                }
+                .modal-title-group {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .modal-icon {
+                    width: 2.5rem;
+                    height: 2.5rem;
+                    border-radius: 0.75rem;
+                    background: rgba(255, 255, 255, 0.2);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .modal-close {
+                    width: 2.5rem;
+                    height: 2.5rem;
+                    border-radius: 50%;
+                    border: none;
+                    background: rgba(255, 255, 255, 0.15);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .modal-close:hover {
+                    background: rgba(255, 255, 255, 0.25);
+                }
+                .modal-body {
+                    padding: 1.5rem;
+                    overflow-y: auto;
+                    max-height: calc(95vh - 6rem);
+                }
+            </style>
+        </div>
+    </dialog>
+
+    <script>
+        const API_URL =
+            document.getElementById("app-config")?.dataset?.apiUrl ||
+            "http://localhost:5145";
+        const modal = document.getElementById(
+            "modal-nuevo-operador",
+        ) as HTMLDialogElement;
+        const btnNuevo = document.getElementById("btn-nuevo-operador");
+        const btnCerrar = document.getElementById("btn-cerrar-modal");
+        const form = document.getElementById(
+            "form-nuevo-operador",
+        ) as HTMLFormElement;
+        const btnCrear = document.getElementById("btn-crear-operador");
+
+        btnNuevo?.addEventListener("click", () => modal?.showModal());
+        btnCerrar?.addEventListener("click", () => modal?.close());
+        modal?.addEventListener("click", (e) => {
+            if (e.target === modal) modal.close();
+        });
+
+        form?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const btnText =
+                btnCrear?.querySelector("span:last-child") ||
+                btnCrear?.lastChild;
+            const originalText = btnText?.textContent;
+
+            if (btnCrear) {
+                btnCrear.setAttribute("disabled", "true");
+                btnCrear.innerHTML =
+                    '<span class="material-symbols-outlined animate-spin">sync</span> Creando...';
+            }
+
+            const data = {
+                nombre: (
+                    document.getElementById("input-nombre") as HTMLInputElement
+                ).value,
+                apellido: (
+                    document.getElementById(
+                        "input-apellido",
+                    ) as HTMLInputElement
+                ).value,
+                email: (
+                    document.getElementById("input-email") as HTMLInputElement
+                ).value,
+                password: (
+                    document.getElementById("input-password") as HTMLInputElement
+                ).value,
+                telefono_contacto: (
+                    document.getElementById(
+                        "input-telefono",
+                    ) as HTMLInputElement
+                ).value,
+                is_admin: (
+                    document.getElementById(
+                        "input-is-admin",
+                    ) as HTMLInputElement
+                ).checked,
+                rol: "operador",
+            };
+
+            try {
+                const res = await fetch(`${API_URL}/api/auth/register`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data),
+                });
+
+                const result = await res.json();
+
+                if (result.success) {
+                    alert("Operador creado exitosamente");
+                    modal.close();
+                    form.reset();
+                    location.reload();
+                } else {
+                    alert("Error: " + (result.message || result.error));
+                }
+            } catch (err) {
+                alert("Error de conexión");
+            } finally {
+                if (btnCrear) {
+                    btnCrear.removeAttribute("disabled");
+                    btnCrear.innerHTML =
+                        '<span class="material-symbols-outlined">save</span> Crear Operador';
+                }
+            }
+        });
+
+        // Toggle estado operador
+        document.querySelectorAll(".btn-toggle-estado").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const id = (btn as HTMLElement).dataset.id;
+                const activo = (btn as HTMLElement).dataset.activo === "true";
+                const accion = activo ? "desactivar" : "activar";
+
+                if (!confirm(`¿Deseas ${accion} este operador?`)) return;
+
+                try {
+                    const res = await fetch(`${API_URL}/api/operadores/${id}/toggle-activo`, {
+                        method: "POST",
+                    });
+
+                    const result = await res.json();
+
+                    if (result.success) {
+                        alert(`Operador ${accion} exitosamente`);
+                        location.reload();
+                    } else {
+                        alert("Error: " + (result.message || result.error));
+                    }
+                } catch (err) {
+                    alert("Error de conexión");
+                }
+            });
+        });
+
+        // Filtros
+        const filterBtns = document.querySelectorAll('.filter-op-btn');
+        const rows = document.querySelectorAll('.operador-row');
+        const countDisplay = document.getElementById('count-display');
+
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const filter = (btn as HTMLElement).dataset.filter;
+                
+                filterBtns.forEach(b => {
+                    b.classList.remove('bg-primary', 'text-white');
+                    b.classList.add('bg-surface-container-lowest', 'text-on-surface');
+                });
+                btn.classList.remove('bg-surface-container-lowest', 'text-on-surface');
+                btn.classList.add('bg-primary', 'text-white');
+
+                let count = 0;
+                rows.forEach(row => {
+                    const activo = (row as HTMLElement).dataset.activo;
+                    if (filter === 'all' || activo === filter) {
+                        (row as HTMLElement).style.display = '';
+                        count++;
+                    } else {
+                        (row as HTMLElement).style.display = 'none';
+                    }
+                });
+
+                if (countDisplay) {
+                    countDisplay.textContent = `${count} operadores`;
+                }
+            });
+        });
+
+        // Buscador
+        const inputBuscar = document.getElementById('input-buscar') as HTMLInputElement;
+        const allRows = document.querySelectorAll('.operador-row');
+
+        inputBuscar?.addEventListener('input', () => {
+            const searchTerm = inputBuscar.value.toLowerCase().trim();
+            
+            allRows.forEach(row => {
+                const nombre = row.querySelector('p.font-semibold')?.textContent?.toLowerCase() || '';
+                const email = row.querySelector('td:nth-child(2) p')?.textContent?.toLowerCase() || '';
+                
+                if (nombre.includes(searchTerm) || email.includes(searchTerm)) {
+                    (row as HTMLElement).style.display = '';
+                } else {
+                    (row as HTMLElement).style.display = 'none';
+                }
+            });
+
+            const countDisplay = document.getElementById('count-display');
+            const visibleRows = Array.from(allRows).filter(r => (r as HTMLElement).style.display !== 'none');
+            if (countDisplay) {
+                countDisplay.textContent = `${visibleRows.length} operadores`;
+            }
+        });
+    </script>
+</DashboardLayout>

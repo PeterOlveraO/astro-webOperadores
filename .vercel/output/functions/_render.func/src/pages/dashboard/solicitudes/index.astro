@@ -1,0 +1,1377 @@
+---
+import DashboardLayout from "../../../layouts/DashboardLayout.astro";
+
+const API_URL = import.meta.env.PUBLIC_API_URL || "http://localhost:5145";
+
+const operadorId =
+    Astro.cookies.get("id_operador")?.value ??
+    Astro.cookies.get("operador_id")?.value;
+
+if (!operadorId || operadorId === "undefined" || operadorId === "null") {
+    return Astro.redirect("/");
+}
+
+async function safeFetch(url: string) {
+    try {
+        const res = await fetch(url);
+        const text = await res.text();
+        if (!res.ok || !text || text.trim() === "")
+            return { success: false, data: null, pagination: null };
+        return JSON.parse(text);
+    } catch (e) {
+        return { success: false, data: null, pagination: null };
+    }
+}
+
+// Pedidos raw como bandeja de entrada
+// Llamamos a todos los pedidos de la base de datos
+const pedidosData = await safeFetch(`${API_URL}/api/pedidos-raw?pageSize=200`);
+const allPedidos = pedidosData.data ?? [];
+
+// ✨ EL FILTRO MÁGICO ✨
+// Separamos únicamente los que tienen estado 'pendiente'
+const pedidosPendientesList = allPedidos.filter(
+    (p: any) => p.estado?.toLowerCase() === "pendiente",
+);
+// Solicitudes cotizacion existentes para saber cuáles ya fueron procesadas
+const solicitudesData = await safeFetch(
+    `${API_URL}/api/solicitudes-cotizacion?pageSize=200`,
+);
+const allSolicitudes: any[] = solicitudesData.data ?? [];
+
+// Catálogo de productos
+const productosData = await safeFetch(
+    `${API_URL}/api/catalogo-productos?pageSize=300`,
+);
+const allProducts = (productosData.data ?? []).map((p: any) => {
+    const ratings = p.ratings_productos || [];
+    const avgRating =
+        ratings.length > 0
+            ? ratings.reduce((sum: number, r: any) => sum + r.calificacion, 0) /
+              ratings.length
+            : 0;
+    return {
+        ...p,
+        _avgRating: Math.round(avgRating * 10) / 10,
+        _totalReviews: ratings.length,
+    };
+});
+
+const total = allPedidos.length;
+const pendientes = allPedidos.filter(
+    (p: any) => p.estado?.toLowerCase() === "pendiente",
+).length;
+const enProceso = allPedidos.filter(
+    (p: any) => p.estado?.toLowerCase() === "procesando",
+).length;
+const completados = allPedidos.filter(
+    (p: any) => p.estado?.toLowerCase() === "completado",
+).length;
+
+function formatDate(dateStr: string) {
+    if (!dateStr) return "—";
+    return new Date(dateStr).toLocaleDateString("es-MX", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+const catIcons: Record<string, string> = {
+    periféricos: "keyboard",
+    monitores: "monitor",
+    audio: "headphones",
+    mobiliario: "chair",
+    accesorios: "cable",
+    computadoras: "computer",
+    redes: "router",
+    almacenamiento: "storage",
+    impresoras: "print",
+};
+---
+
+<DashboardLayout title="Pedidos · Operadores">
+    <div class="p-6 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
+        <!-- Header -->
+        <div class="mb-4 flex-shrink-0">
+            <nav class="flex items-center gap-2 text-sm text-outline mb-2">
+                <a
+                    href="/dashboard"
+                    class="hover:text-primary transition-colors">Dashboard</a
+                >
+                <span class="material-symbols-outlined text-xs"
+                    >chevron_right</span
+                >
+                <span class="text-primary font-medium">Pedidos Entrantes</span>
+            </nav>
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1
+                        class="font-headline text-2xl font-extrabold text-on-surface tracking-tight"
+                    >
+                        Pedidos Entrantes
+                    </h1>
+                    <p class="text-on-surface-variant text-sm mt-0.5">
+                        Selecciona un pedido, agrega productos y genera la
+                        cotización hacia los mayoristas.
+                    </p>
+                </div>
+                <div class="flex gap-3">
+                    <div
+                        class="flex items-center gap-2 bg-error/10 text-error px-3 py-1.5 rounded-full text-xs font-bold"
+                    >
+                        <span class="material-symbols-outlined text-sm"
+                            >pending</span
+                        >
+                        <span id="stat-pendientes">{pendientes}</span> pendientes
+                    </div>
+                    <div
+                        class="flex items-center gap-2 bg-secondary/10 text-secondary px-3 py-1.5 rounded-full text-xs font-bold"
+                    >
+                        <span class="material-symbols-outlined text-sm"
+                            >autorenew</span
+                        >
+                        <span id="stat-proceso">{enProceso}</span> en proceso
+                    </div>
+                    <div
+                        class="flex items-center gap-2 bg-outline/10 text-outline px-3 py-1.5 rounded-full text-xs font-bold"
+                    >
+                        <span class="material-symbols-outlined text-sm"
+                            >check_circle</span
+                        >
+                        <span id="stat-completados">{completados}</span> completados
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Split Panel -->
+        <div class="flex-1 flex gap-4 min-h-0 overflow-hidden">
+            <!-- LEFT: Pedidos Raw List -->
+            <div
+                class="w-[360px] flex-shrink-0 flex flex-col bg-surface-container-lowest rounded-xl overflow-hidden"
+            >
+                <div
+                    class="px-4 py-3 border-b border-outline-variant/10 flex items-center gap-2"
+                >
+                    <span class="material-symbols-outlined text-primary text-sm"
+                        >inbox</span
+                    >
+                    <span class="text-sm font-bold text-on-surface"
+                        >Pedidos Pendientes</span
+                    >
+                </div>
+                <div
+                    class="flex-1 overflow-y-auto divide-y divide-outline-variant/5"
+                    id="pedidos-list"
+                >
+                    {
+                        allPedidos.filter(
+                            (p: any) => p.estado?.toLowerCase() === "pendiente",
+                        ).length === 0 ? (
+                            <div class="px-6 py-12 text-center text-outline">
+                                <span class="material-symbols-outlined text-4xl block mb-2 opacity-30">
+                                    done_all
+                                </span>
+                                <p class="text-sm font-medium">
+                                    No hay pedidos pendientes
+                                </p>
+                                <p class="text-xs mt-1">
+                                    Has procesado todas las solicitudes.
+                                </p>
+                            </div>
+                        ) : (
+                            allPedidos
+                                .filter(
+                                    (p: any) =>
+                                        p.estado?.toLowerCase() === "pendiente",
+                                )
+                                .map((ped: any, idx: number) => {
+                                    const urgencyColor =
+                                        ped.urgencia?.toLowerCase() === "alta"
+                                            ? "bg-error"
+                                            : ped.urgencia?.toLowerCase() ===
+                                                "media"
+                                              ? "bg-tertiary"
+                                              : "bg-outline";
+                                    const statusColor =
+                                        ped.estado?.toLowerCase() ===
+                                        "pendiente"
+                                            ? "text-error"
+                                            : ped.estado?.toLowerCase() ===
+                                                "completado"
+                                              ? "text-outline"
+                                              : "text-secondary";
+                                    // Ver si ya tiene solicitud cotizacion ligada
+                                    const solicitudExistente =
+                                        allSolicitudes.find(
+                                            (s: any) =>
+                                                s.id_pedido === ped.id_pedido,
+                                        );
+                                    return (
+                                        <button
+                                            class="pedido-item w-full text-left px-4 py-4 hover:bg-surface-container-low/70 transition-all cursor-pointer relative"
+                                            data-index={idx}
+                                            data-id={ped.id_pedido}
+                                            data-contenido={
+                                                ped.contenido_raw || ""
+                                            }
+                                            data-urgencia={
+                                                ped.urgencia || "media"
+                                            }
+                                            data-estado={
+                                                ped.estado || "pendiente"
+                                            }
+                                            data-date={formatDate(
+                                                ped.created_at,
+                                            )}
+                                            data-specs={JSON.stringify(
+                                                ped.especificaciones_tecnicas ||
+                                                    {},
+                                            )}
+                                            data-id-cliente={
+                                                ped.id_cliente || ""
+                                            }
+                                            data-solicitud-id={
+                                                solicitudExistente?.id_solicitud_cotizacion ||
+                                                ""
+                                            }
+                                            data-solicitud-estado={
+                                                solicitudExistente?.estado_solicitud ||
+                                                ""
+                                            }
+                                        >
+                                            <div
+                                                class={`absolute left-0 top-0 bottom-0 w-1 ${urgencyColor} rounded-r opacity-60`}
+                                            />
+                                            <div class="pl-2">
+                                                <div class="flex items-center justify-between mb-1">
+                                                    <div class="flex items-center gap-2">
+                                                        <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] bg-primary-fixed text-on-primary-fixed">
+                                                            {String(
+                                                                ped.id_pedido ||
+                                                                    "?",
+                                                            )[0].toUpperCase()}
+                                                        </div>
+                                                        <span class="text-sm font-bold text-on-surface">
+                                                            Pedido{" "}
+                                                            {String(
+                                                                ped.id_pedido ||
+                                                                    "",
+                                                            ).slice(0, 8)}
+                                                        </span>
+                                                    </div>
+                                                    <span
+                                                        class={`text-[10px] font-bold uppercase ${statusColor}`}
+                                                    >
+                                                        {ped.estado}
+                                                    </span>
+                                                </div>
+                                                <p class="text-xs text-on-surface-variant line-clamp-2 mb-1.5 leading-relaxed">
+                                                    {ped.contenido_raw || "—"}
+                                                </p>
+                                                <div class="flex items-center justify-between">
+                                                    <span
+                                                        class={`text-[10px] font-bold uppercase tracking-wider ${ped.urgencia?.toLowerCase() === "alta" ? "text-error" : ped.urgencia?.toLowerCase() === "media" ? "text-tertiary" : "text-outline"}`}
+                                                    >
+                                                        ● {ped.urgencia || "—"}
+                                                    </span>
+                                                    <span class="text-[10px] text-outline">
+                                                        {formatDate(
+                                                            ped.created_at,
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                {solicitudExistente && (
+                                                    <div class="mt-1.5 flex items-center gap-1 text-[10px] text-secondary font-semibold">
+                                                        <span class="material-symbols-outlined text-xs">
+                                                            receipt_long
+                                                        </span>
+                                                        Solicitud generada
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </button>
+                                    );
+                                })
+                        )
+                    }
+                </div>
+            </div>
+
+            <!-- RIGHT -->
+            <div class="flex-1 flex flex-col min-h-0 overflow-hidden gap-4">
+                <div
+                    id="empty-state"
+                    class="flex-1 bg-surface-container-lowest rounded-xl flex items-center justify-center"
+                >
+                    <div class="text-center text-outline">
+                        <span
+                            class="material-symbols-outlined text-6xl block mb-3 opacity-15"
+                            >touch_app</span
+                        >
+                        <p class="text-lg font-semibold">
+                            Selecciona un pedido
+                        </p>
+                        <p class="text-sm mt-1">
+                            Haz clic en un pedido para revisar su contenido y
+                            armar la cotización.
+                        </p>
+                    </div>
+                </div>
+
+                <div
+                    id="detail-panel"
+                    class="flex-1 flex flex-col min-h-0 overflow-hidden gap-4"
+                    style="display: none;"
+                >
+                    <!-- TOP: Pedido Detail -->
+                    <div
+                        class="bg-surface-container-lowest rounded-xl p-5 flex-shrink-0"
+                    >
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-primary-fixed text-on-primary-fixed"
+                                >
+                                    <span
+                                        class="material-symbols-outlined text-base"
+                                        >receipt</span
+                                    >
+                                </div>
+                                <div>
+                                    <h3
+                                        class="font-bold text-on-surface text-lg"
+                                        id="detail-pedido-id"
+                                    >
+                                        —
+                                    </h3>
+                                    <p
+                                        class="text-xs text-outline"
+                                        id="detail-cliente-id"
+                                    >
+                                        —
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span
+                                    id="detail-urgency-badge"
+                                    class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                                    >—</span
+                                >
+                                <span
+                                    id="detail-status-badge"
+                                    class="px-3 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1"
+                                    >—</span
+                                >
+                                <!-- Indicador de solicitud generada -->
+                                <div
+                                    id="solicitud-badge"
+                                    class="hidden items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold bg-secondary/10 text-secondary"
+                                >
+                                    <span
+                                        class="material-symbols-outlined text-sm"
+                                        >receipt_long</span
+                                    >
+                                    <span id="solicitud-badge-label"
+                                        >Solicitud generada</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-surface-container-low rounded-xl p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span
+                                    class="material-symbols-outlined text-primary text-sm"
+                                    >description</span
+                                >
+                                <span
+                                    class="text-xs font-bold uppercase tracking-wider text-outline"
+                                    >Contenido del pedido</span
+                                >
+                            </div>
+                            <p
+                                class="text-sm text-on-surface font-medium leading-relaxed"
+                                id="detail-desc"
+                            >
+                                —
+                            </p>
+                            <div
+                                id="detail-specs-container"
+                                class="mt-3 pt-3 border-t border-outline-variant/10"
+                                style="display: none;"
+                            >
+                                <span
+                                    class="text-[10px] font-bold uppercase tracking-wider text-outline block mb-2"
+                                    >Especificaciones técnicas</span
+                                >
+                                <div
+                                    id="detail-specs"
+                                    class="flex flex-wrap gap-2"
+                                >
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- BOTTOM: Products + Cart -->
+                    <div class="flex-1 flex gap-4 min-h-0 overflow-hidden">
+                        <!-- Products -->
+                        <div
+                            class="flex-1 bg-surface-container-lowest rounded-xl flex flex-col min-h-0 overflow-hidden"
+                        >
+                            <div
+                                class="px-4 py-3 border-b border-outline-variant/10 flex items-center justify-between flex-shrink-0 flex-wrap gap-2"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        class="text-sm font-bold text-on-surface"
+                                        id="products-title"
+                                        >Productos Sugeridos</span
+                                    >
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <button
+                                        id="btn-show-suggested"
+                                        class="mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-secondary/20 text-secondary"
+                                        >Sugeridos</button
+                                    >
+                                    <button
+                                        id="btn-show-all"
+                                        class="mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-outline/10 text-outline hover:bg-outline/20 transition-colors"
+                                        >Todos</button
+                                    >
+                                    <span
+                                        class="w-px h-4 bg-outline-variant/20 mx-1"
+                                    ></span>
+                                    <button
+                                        id="btn-sort-rating"
+                                        class="sort-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-outline/10 text-outline hover:bg-outline/20 transition-colors"
+                                        >⭐ Rating</button
+                                    >
+                                    <button
+                                        id="btn-sort-price"
+                                        class="sort-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-outline/10 text-outline hover:bg-outline/20 transition-colors"
+                                        >💲 Precio</button
+                                    >
+                                </div>
+                            </div>
+                            <div class="px-4 py-2 flex-shrink-0">
+                                <div class="relative">
+                                    <input
+                                        type="text"
+                                        id="product-search"
+                                        placeholder="Buscar producto por nombre, categoría, material..."
+                                        class="w-full bg-surface-container-low border-none py-2.5 px-4 pl-9 rounded-xl text-sm text-on-surface placeholder-outline focus:ring-2 focus:ring-primary/20 focus:outline-none"
+                                    />
+                                    <span
+                                        class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-outline text-base"
+                                        >search</span
+                                    >
+                                </div>
+                            </div>
+                            <div
+                                class="flex-1 overflow-y-auto px-4 pb-3 space-y-2"
+                                id="products-container"
+                            >
+                            </div>
+                        </div>
+
+                        <!-- Cart -->
+                        <div
+                            class="w-[340px] flex-shrink-0 bg-surface-container-lowest rounded-xl flex flex-col min-h-0 overflow-hidden"
+                        >
+                            <div
+                                class="px-4 py-3 border-b border-outline-variant/10 flex items-center justify-between flex-shrink-0"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        class="material-symbols-outlined text-primary text-sm"
+                                        >shopping_cart</span
+                                    >
+                                    <span
+                                        class="text-sm font-bold text-on-surface"
+                                        >Cotización</span
+                                    >
+                                </div>
+                                <span
+                                    id="cart-count"
+                                    class="text-xs font-bold text-outline bg-outline/10 px-2 py-0.5 rounded-full"
+                                    >0</span
+                                >
+                            </div>
+                            <div
+                                class="flex-1 overflow-y-auto px-3 py-3 space-y-2"
+                                id="cart-container"
+                            >
+                                <div
+                                    id="cart-empty"
+                                    class="text-center text-outline py-8"
+                                >
+                                    <span
+                                        class="material-symbols-outlined text-3xl block mb-2 opacity-20"
+                                        >add_shopping_cart</span
+                                    >
+                                    <p class="text-xs">
+                                        Agrega productos del catálogo
+                                    </p>
+                                </div>
+                            </div>
+                            <div
+                                class="px-4 py-3 border-t border-outline-variant/10 flex-shrink-0 bg-surface-container-low space-y-3"
+                            >
+                                <div class="flex justify-between items-center">
+                                    <span
+                                        class="text-xs text-outline font-bold uppercase tracking-wider"
+                                        >Total estimado</span
+                                    >
+                                    <p
+                                        class="font-headline text-xl font-extrabold text-primary"
+                                        id="cart-total"
+                                    >
+                                        $0.00
+                                    </p>
+                                </div>
+                                <div
+                                    id="cart-finalize-section"
+                                    style="display: none;"
+                                >
+                                    <button
+                                        id="btn-finalize"
+                                        class="w-full py-3 rounded-xl text-sm font-bold bg-gradient-to-br from-secondary to-secondary-container text-white hover:opacity-95 transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-secondary/20"
+                                    >
+                                        <span
+                                            class="material-symbols-outlined text-base"
+                                            >send</span
+                                        >
+                                        Generar Solicitud a Mayoristas
+                                    </button>
+                                    <p
+                                        class="text-[10px] text-outline mt-1.5 text-center leading-relaxed"
+                                    >
+                                        Se generarán solicitudes individuales
+                                        por cada mayorista involucrado.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+        .pedido-item.active {
+            background: color-mix(
+                in oklch,
+                var(--color-primary) 8%,
+                transparent
+            );
+        }
+        .pedido-item.active::before {
+            opacity: 1 !important;
+        }
+    </style>
+
+    <script
+        define:vars={{
+            allProducts: JSON.stringify(allProducts),
+            catIcons: JSON.stringify(catIcons),
+            operadorId,
+            API_URL,
+        }}
+    >
+        window.__PRODUCTS__ = JSON.parse(allProducts);
+        window.__CAT_ICONS__ = JSON.parse(catIcons);
+        window.__OPERADOR_ID__ = operadorId;
+        window.__API_URL__ = API_URL;
+    </script>
+
+    <script>
+        const products = (window as any).__PRODUCTS__ as any[];
+        const catIcons = (window as any).__CAT_ICONS__ as Record<
+            string,
+            string
+        >;
+        const OPERADOR_ID = (window as any).__OPERADOR_ID__ as string;
+        const API_URL = (window as any).__API_URL__ as string;
+
+        // Estado activo
+        let currentPedidoId: string | null = null;
+        let currentSolicitudId: string | null = null; // id_solicitud_cotizacion
+        let showMode: "suggested" | "all" = "suggested";
+        let sortMode: "relevance" | "rating" | "price" = "relevance";
+        let currentContenido = "";
+        let currentSpecs: Record<string, any> = {};
+
+        // Carrito local en memoria: Map<id_producto, { id_producto, cantidad, nombre, precio }>
+        let cart = new Map<
+            string,
+            {
+                id_producto: string;
+                cantidad: number;
+                nombre: string;
+                precio: number;
+            }
+        >();
+        // ── Actualizar contadores del header ──────────────────────
+        function updateStatCounters() {
+            const allBtns = Array.from(
+                document.querySelectorAll(".pedido-item"),
+            ) as HTMLElement[];
+
+            const pendientes = allBtns.filter(
+                (b) => b.dataset.estado?.toLowerCase() === "pendiente",
+            ).length;
+            const enProceso = allBtns.filter(
+                (b) => b.dataset.estado?.toLowerCase() === "procesando",
+            ).length;
+
+            const elPend = document.getElementById("stat-pendientes");
+            const elProc = document.getElementById("stat-proceso");
+            if (elPend) elPend.textContent = String(pendientes);
+            if (elProc) elProc.textContent = String(enProceso);
+        }
+        // ── Helpers ──────────────────────────────────────────────
+        function renderStars(level: number): string {
+            const filled = Math.min(Math.max(Math.round(level || 0), 0), 5);
+            return Array.from(
+                { length: 5 },
+                (_, i) =>
+                    `<span class="${i < filled ? "text-amber-400" : "text-outline/30"} text-xs">★</span>`,
+            ).join("");
+        }
+
+        function formatMXN(n: number) {
+            return n.toLocaleString("es-MX", { minimumFractionDigits: 2 });
+        }
+
+        function extractKeywords(text: string): string[] {
+            const stop = new Set([
+                "de",
+                "para",
+                "con",
+                "sin",
+                "que",
+                "los",
+                "las",
+                "del",
+                "una",
+                "uno",
+                "el",
+                "la",
+                "en",
+                "por",
+                "y",
+                "o",
+                "a",
+                "al",
+                "es",
+                "su",
+                "muy",
+                "más",
+                "se",
+                "no",
+                "me",
+                "mi",
+            ]);
+            return text
+                .toLowerCase()
+                .replace(/[^a-záéíóúñü0-9\s]/g, "")
+                .split(/\s+/)
+                .filter((w) => w.length > 2 && !stop.has(w));
+        }
+        function mapUrgencia(value: string): string {
+            const map: Record<string, string> = {
+                alta: "Urgente",
+                media: "Normal",
+                baja: "Normal",
+            };
+            return map[value?.toLowerCase()] ?? "Normal";
+        }
+        function mapEstado(value: string): string {
+            const map: Record<string, string> = {
+                pendiente: "pendiente",
+                procesando: "en_proceso",
+                completado: "aceptada",
+                rechazado: "rechazada",
+            };
+            return map[value?.toLowerCase()] ?? "pendiente";
+        }
+        function scoreProduct(
+            product: any,
+            desc: string,
+            specs: Record<string, any>,
+        ): number {
+            const all = [
+                ...extractKeywords(desc),
+                ...Object.values(specs).flatMap((v) =>
+                    extractKeywords(String(v)),
+                ),
+            ];
+            if (!all.length) return 0;
+            const name = (product.nombre_articulo || "").toLowerCase();
+            const cat = (product.categoria || "").toLowerCase();
+            const mat = (product.materiales || "").toLowerCase();
+            return all.reduce(
+                (s, kw) =>
+                    s +
+                    (name.includes(kw)
+                        ? 3
+                        : cat.includes(kw)
+                          ? 2
+                          : mat.includes(kw)
+                            ? 1
+                            : 0),
+                0,
+            );
+        }
+
+        // ── Carrito ───────────────────────────────────────────────
+        function updateCartUI() {
+            const container = document.getElementById("cart-container")!;
+            const countEl = document.getElementById("cart-count")!;
+            const totalEl = document.getElementById("cart-total")!;
+            const finalizeSection = document.getElementById(
+                "cart-finalize-section",
+            )!;
+
+            countEl.textContent = String(cart.size);
+
+            if (cart.size === 0) {
+                container.innerHTML = `<div id="cart-empty" class="text-center text-outline py-8">
+          <span class="material-symbols-outlined text-3xl block mb-2 opacity-20">add_shopping_cart</span>
+          <p class="text-xs">Agrega productos del catálogo</p>
+        </div>`;
+                finalizeSection.style.display = "none";
+                totalEl.textContent = "$0.00";
+                return;
+            }
+
+            let subtotal = 0;
+            container.innerHTML = Array.from(cart.values())
+                .map((item) => {
+                    const total = item.precio * item.cantidad;
+                    subtotal += total;
+                    const product = products.find(
+                        (p) => p.id_producto === item.id_producto,
+                    );
+                    const icon =
+                        catIcons[(product?.categoria || "").toLowerCase()] ||
+                        "category";
+                    return `
+          <div class="flex items-center gap-3 p-3 bg-surface-container-low rounded-xl">
+            ${
+                product?.imagen_url
+                    ? `<img src="${product.imagen_url}" alt="${item.nombre}"
+                     class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                     loading="lazy"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                 <div class="w-10 h-10 rounded-lg bg-surface-container-highest items-center justify-center flex-shrink-0" style="display:none">
+                   <span class="material-symbols-outlined text-primary text-sm">${icon}</span>
+                 </div>`
+                    : `<div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center flex-shrink-0">
+                   <span class="material-symbols-outlined text-primary text-sm">${icon}</span>
+                 </div>`
+            }
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-bold text-on-surface truncate">${item.nombre}</p>
+              <div class="flex items-center gap-2 mt-0.5">
+                <button data-cart-action="down" data-pid="${item.id_producto}" class="w-5 h-5 rounded bg-surface-container-highest flex items-center justify-center text-outline hover:text-primary transition-colors">
+                  <span class="material-symbols-outlined text-xs">remove</span>
+                </button>
+                <span class="text-xs font-bold text-on-surface w-6 text-center">${item.cantidad}</span>
+                <button data-cart-action="up" data-pid="${item.id_producto}" class="w-5 h-5 rounded bg-surface-container-highest flex items-center justify-center text-outline hover:text-primary transition-colors">
+                  <span class="material-symbols-outlined text-xs">add</span>
+                </button>
+                <span class="text-[10px] text-outline ml-1">× $${formatMXN(item.precio)}</span>
+              </div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <p class="text-sm font-bold text-primary">$${formatMXN(total)}</p>
+              <button data-cart-action="remove" data-pid="${item.id_producto}" class="mt-1 p-1 rounded-full bg-error/10 text-error hover:bg-error/20 transition-colors block ml-auto">
+                <span class="material-symbols-outlined text-xs">close</span>
+              </button>
+            </div>
+          </div>`;
+                })
+                .join("");
+
+            totalEl.textContent = `$${formatMXN(subtotal)}`;
+            finalizeSection.style.display = "block";
+
+            // Eventos del carrito
+            container.querySelectorAll("[data-cart-action]").forEach((btn) => {
+                btn.addEventListener("click", (e) => {
+                    const el = e.currentTarget as HTMLElement;
+                    const pid = el.dataset.pid!;
+                    const action = el.dataset.cartAction!;
+                    const item = cart.get(pid);
+                    if (!item) return;
+                    if (action === "remove") {
+                        cart.delete(pid);
+                    } else if (action === "up") {
+                        item.cantidad++;
+                    } else if (action === "down") {
+                        item.cantidad > 1 ? item.cantidad-- : cart.delete(pid);
+                    }
+                    updateCartUI();
+                    renderProducts();
+                });
+            });
+        }
+
+        // ── Productos ─────────────────────────────────────────────
+        function renderProducts() {
+            const container = document.getElementById("products-container")!;
+            const q =
+                (
+                    document.getElementById(
+                        "product-search",
+                    ) as HTMLInputElement
+                )?.value
+                    .toLowerCase()
+                    .trim() || "";
+            const titleEl = document.getElementById("products-title")!;
+
+            let list = products.map((p) => ({
+                ...p,
+                _score: scoreProduct(p, currentContenido, currentSpecs),
+            }));
+
+            if (showMode === "suggested") {
+                list = list.filter((p) => p._score > 0);
+                titleEl.textContent = `Sugeridos (${list.length})`;
+            } else {
+                titleEl.textContent = `Todos (${list.length})`;
+            }
+
+            if (q)
+                list = list.filter((p) =>
+                    `${p.nombre_articulo} ${p.categoria} ${p.materiales}`
+                        .toLowerCase()
+                        .includes(q),
+                );
+
+            if (sortMode === "rating") {
+                list.sort((a, b) => (b._avgRating || 0) - (a._avgRating || 0));
+            } else if (sortMode === "price") {
+                list.sort(
+                    (a, b) =>
+                        (a.precio_mayorista || 0) - (b.precio_mayorista || 0),
+                );
+            } else {
+                list.sort((a, b) => b._score - a._score);
+            }
+
+            if (!list.length) {
+                container.innerHTML = `<div class="text-center text-outline py-8">
+          <span class="material-symbols-outlined text-3xl block mb-2 opacity-20">search_off</span>
+          <p class="text-xs">${showMode === "suggested" ? 'Sin sugerencias. Prueba "Todos".' : "Sin resultados."}</p>
+        </div>`;
+                return;
+            }
+
+            container.innerHTML = list
+                .map((p) => {
+                    const inCart = cart.has(p.id_producto);
+                    const icon =
+                        catIcons[(p.categoria || "").toLowerCase()] ||
+                        "category";
+                    const moq = p.moq || 1;
+                    const scoreTag =
+                        showMode === "suggested" && p._score
+                            ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-secondary/10 text-secondary">${p._score} pts</span>`
+                            : "";
+                    return `
+          <div class="rounded-xl p-4 transition-all ${inCart ? "bg-primary/5 ring-1 ring-primary/20" : "bg-surface-container-low hover:bg-surface-bright"} group">
+            <div class="flex gap-3">
+              ${
+                  p.imagen_url
+                      ? `<img src="${p.imagen_url}" alt="${p.nombre_articulo}" class="w-16 h-16 rounded-xl object-cover flex-shrink-0" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                   <div class="w-16 h-16 rounded-xl bg-surface-container-highest items-center justify-center flex-shrink-0" style="display:none"><span class="material-symbols-outlined text-primary">${icon}</span></div>`
+                      : `<div class="w-16 h-16 rounded-xl bg-surface-container-highest flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined text-primary">${icon}</span></div>`
+              }
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <h4 class="font-bold text-on-surface text-sm">${p.nombre_articulo || "—"}</h4>
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-surface-container-highest text-on-surface-variant">${p.categoria || "—"}</span>
+                  ${scoreTag}
+                </div>
+                <p class="text-[11px] text-on-surface-variant leading-relaxed mb-1.5 line-clamp-2">${p.descripcion || p.materiales || "Sin descripción"}</p>
+                <div class="flex items-center gap-3 flex-wrap">
+                  <span class="text-[11px] text-outline flex items-center gap-1">
+                    <span class="material-symbols-outlined text-xs">factory</span>
+                    ${p.mayoristas?.nombre_empresa || "—"}
+                  </span>
+                  <span class="flex items-center gap-0.5">${renderStars(p.mayoristas?.nivel_confianza || 0)}</span>
+                  ${
+                      p._totalReviews > 0
+                          ? `<span class="text-[10px] flex items-center gap-1 bg-amber-500/10 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
+                        <span class="material-symbols-outlined text-xs">groups</span>${p._avgRating}★ (${p._totalReviews})</span>`
+                          : `<span class="text-[10px] text-outline">Sin reseñas</span>`
+                  }
+                </div>
+              </div>
+              <div class="flex flex-col items-end justify-between flex-shrink-0 gap-2">
+                <div class="text-right">
+                  <p class="text-lg font-bold text-primary">$${(p.precio_mayorista || 0).toFixed(2)}</p>
+
+                </div>
+                ${
+                    inCart
+                        ? `<button data-action="remove-product" data-pid="${p.id_producto}"
+                       class="px-3 py-2 rounded-xl text-xs font-bold bg-error/10 text-error hover:bg-error/20 transition-all flex items-center gap-1">
+                       <span class="material-symbols-outlined text-sm">remove_shopping_cart</span> Quitar
+                     </button>`
+                        : `<div class="flex items-center gap-1.5">
+                       <div class="flex items-center bg-surface-container-highest rounded-lg overflow-hidden">
+                         <button data-action="qty-down" class="px-1.5 py-1 text-outline hover:text-primary transition-colors"><span class="material-symbols-outlined text-sm">remove</span></button>
+                         <input type="number" value="${"1"}" min="1" class="qty-input w-10 text-center text-sm font-bold bg-transparent border-none focus:ring-0 text-on-surface" />
+                         <button data-action="qty-up" class="px-1.5 py-1 text-outline hover:text-primary transition-colors"><span class="material-symbols-outlined text-sm">add</span></button>
+                       </div>
+                       <button data-action="add-product" data-pid="${p.id_producto}" data-precio="${p.precio_mayorista || 0}" data-nombre="${p.nombre_articulo}"
+                         class="px-3 py-2 rounded-xl text-xs font-bold bg-gradient-to-br from-primary to-primary-container text-white hover:scale-105 transition-all active:scale-95 flex items-center gap-1 shadow-lg shadow-primary/20">
+                         <span class="material-symbols-outlined text-sm">add_shopping_cart</span> Agregar
+                       </button>
+                     </div>`
+                }
+              </div>
+            </div>
+          </div>`;
+                })
+                .join("");
+
+            // Delegación de eventos
+            container.querySelectorAll("[data-action]").forEach((btn) => {
+                btn.addEventListener("click", (e) => {
+                    const el = e.currentTarget as HTMLElement;
+                    const action = el.dataset.action!;
+
+                    if (action === "add-product") {
+                        const pid = el.dataset.pid!;
+                        const precio = parseFloat(el.dataset.precio || "0");
+                        const nombre = el.dataset.nombre || "Producto";
+
+                        // ✨ EL ARREGLO ESTÁ AQUÍ ✨
+                        // Cambiamos .rounded-xl por .group para que agarre el contenedor correcto
+                        const card = el.closest(".group")!;
+
+                        const qtyInput = card.querySelector(
+                            ".qty-input",
+                        ) as HTMLInputElement;
+                        const qty = parseInt(qtyInput?.value || "1");
+
+                        cart.set(pid, {
+                            id_producto: pid,
+                            cantidad: qty,
+                            nombre,
+                            precio,
+                        });
+                        updateCartUI();
+                        renderProducts();
+                    } else if (action === "remove-product") {
+                        cart.delete(el.dataset.pid!);
+                        updateCartUI();
+                        renderProducts();
+                    } else if (action === "qty-down") {
+                        const input = el.parentElement?.querySelector(
+                            ".qty-input",
+                        ) as HTMLInputElement;
+                        if (input)
+                            input.value = String(
+                                Math.max(1, parseInt(input.value || "1") - 1),
+                            );
+                    } else if (action === "qty-up") {
+                        const input = el.parentElement?.querySelector(
+                            ".qty-input",
+                        ) as HTMLInputElement;
+                        if (input)
+                            input.value = String(
+                                parseInt(input.value || "1") + 1,
+                            );
+                    }
+                });
+            });
+        }
+
+        // ── Seleccionar pedido ────────────────────────────────────
+        async function selectPedido(btn: HTMLElement) {
+            document
+                .querySelectorAll(".pedido-item")
+                .forEach((el) => el.classList.remove("active"));
+            btn.classList.add("active");
+
+            currentPedidoId = btn.dataset.id!;
+            currentContenido = btn.dataset.contenido || "";
+            currentSpecs = JSON.parse(btn.dataset.specs || "{}");
+            const urgencia = btn.dataset.urgencia || "media";
+            const estado = btn.dataset.estado || "pendiente";
+            const fecha = btn.dataset.date || "—";
+            const clienteId = btn.dataset.idCliente || "";
+            currentSolicitudId = btn.dataset.solicitudId || null;
+
+            // Mostrar panel
+            document.getElementById("empty-state")!.style.display = "none";
+            (
+                document.getElementById("detail-panel") as HTMLElement
+            ).style.display = "flex";
+
+            // Poblar header
+            document.getElementById("detail-pedido-id")!.textContent =
+                `Pedido ${currentPedidoId.slice(0, 8)}`;
+            document.getElementById("detail-cliente-id")!.textContent =
+                clienteId
+                    ? `Cliente: ${clienteId.slice(0, 8)}...`
+                    : "Cliente no identificado";
+            document.getElementById("detail-desc")!.textContent =
+                currentContenido || "Sin contenido";
+
+            // Urgencia badge
+            const urgBadge = document.getElementById("detail-urgency-badge")!;
+            urgBadge.textContent = urgencia;
+            urgBadge.className = `px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                urgencia.toLowerCase() === "alta"
+                    ? "bg-error/10 text-error"
+                    : urgencia.toLowerCase() === "media"
+                      ? "bg-tertiary/10 text-tertiary"
+                      : "bg-outline/10 text-outline"
+            }`;
+
+            // Estado badge
+            const stBadge = document.getElementById("detail-status-badge")!;
+            stBadge.textContent = estado;
+            stBadge.className = `px-3 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
+                estado.toLowerCase() === "pendiente"
+                    ? "bg-error/10 text-error"
+                    : estado.toLowerCase() === "completado"
+                      ? "bg-outline/10 text-outline"
+                      : "bg-secondary/10 text-secondary"
+            }`;
+
+            // Specs
+            const specsContainer = document.getElementById(
+                "detail-specs-container",
+            )!;
+            const specsEl = document.getElementById("detail-specs")!;
+            const specsEntries = Object.entries(currentSpecs);
+            if (specsEntries.length > 0) {
+                specsContainer.style.display = "block";
+                specsEl.innerHTML = specsEntries
+                    .map(
+                        ([k, v]) =>
+                            `<span class="px-2 py-1 bg-surface-container-high rounded-lg text-xs text-on-surface-variant">
+            <span class="font-bold text-outline">${k}:</span> ${v}
+          </span>`,
+                    )
+                    .join("");
+            } else {
+                specsContainer.style.display = "none";
+            }
+
+            // Badge de solicitud existente
+            const solBadge = document.getElementById("solicitud-badge")!;
+            if (currentSolicitudId) {
+                solBadge.classList.remove("hidden");
+                solBadge.classList.add("flex");
+            } else {
+                solBadge.classList.add("hidden");
+                solBadge.classList.remove("flex");
+            }
+
+            // Si ya tiene solicitud, cargar su carrito guardado
+            cart.clear();
+            if (currentSolicitudId) {
+                await loadSolicitudProductos(currentSolicitudId);
+            }
+
+            updateCartUI();
+            renderProducts();
+        }
+
+        // Cargar productos de una solicitud_cotizacion existente al carrito
+        async function loadSolicitudProductos(solicitudId: string) {
+            try {
+                const res = await fetch(
+                    `${API_URL}/api/solicitudes-cotizacion/${solicitudId}`,
+                );
+                const json = await res.json();
+                const prods = json.data?.productos || [];
+                if (Array.isArray(prods) && prods.length > 0) {
+                    prods.forEach((item: any) => {
+                        const product = products.find(
+                            (p: any) => p.id_producto === item.id_producto,
+                        );
+                        if (product) {
+                            cart.set(item.id_producto, {
+                                id_producto: item.id_producto,
+                                cantidad: item.cantidad || 1,
+                                nombre: product.nombre_articulo,
+                                precio: product.precio_mayorista || 0,
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("Error cargando productos de solicitud:", e);
+            }
+        }
+
+        // ── Finalizar: crear/actualizar solicitud_cotizacion ──────
+        async function finalizarCotizacion() {
+            if (!currentPedidoId) return;
+
+            if (cart.size === 0) {
+                alert(
+                    "Agrega al menos un producto antes de generar la cotización.",
+                );
+                return;
+            }
+
+            const btn = document.getElementById(
+                "btn-finalize",
+            ) as HTMLButtonElement;
+            btn.innerHTML =
+                '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span> Generando...';
+            btn.disabled = true;
+
+            const notas =
+                (document.getElementById("cart-notes") as HTMLTextAreaElement)
+                    ?.value || "";
+            const productosPayload = Array.from(cart.values()).map((item) => ({
+                id_producto: item.id_producto,
+                cantidad: item.cantidad,
+            }));
+
+            try {
+                let solicitudId = currentSolicitudId;
+
+                if (!solicitudId) {
+                    const createRes = await fetch(
+                        `${API_URL}/api/solicitudes-cotizacion`,
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                id_pedido: currentPedidoId,
+                                // Así debe quedar:
+                                nivel_urgencia: mapUrgencia(
+                                    (
+                                        document.querySelector(
+                                            ".pedido-item.active",
+                                        ) as HTMLElement
+                                    )?.dataset?.urgencia || "media",
+                                ),
+                                id_operador: OPERADOR_ID,
+                                productos: [],
+                                estado_solicitud: "pendiente",
+                            }),
+                        },
+                    );
+
+                    const createText = await createRes.text();
+                    let createJson: any = {};
+
+                    try {
+                        createJson = createText ? JSON.parse(createText) : {};
+                    } catch {
+                        createJson = {};
+                    }
+
+                    if (!createRes.ok) {
+                        alert(
+                            createJson.error ||
+                                createJson.message ||
+                                `Error al crear la solicitud (${createRes.status})`,
+                        );
+                        resetFinalizeBtn();
+                        return;
+                    }
+
+                    solicitudId = createJson?.data?.id_solicitud_cotizacion;
+
+                    if (!solicitudId) {
+                        alert(
+                            "La API creó la solicitud pero no devolvió id_solicitud_cotizacion.",
+                        );
+                        resetFinalizeBtn();
+                        return;
+                    }
+
+                    currentSolicitudId = solicitudId;
+                }
+                const urgenciaFinal = mapUrgencia(
+                    (
+                        document.querySelector(
+                            ".pedido-item.active",
+                        ) as HTMLElement
+                    )?.dataset?.urgencia || "media",
+                );
+                console.log("urgencia mapeada:", urgenciaFinal); // debe decir "Normal"
+                const updateRes = await fetch(
+                    `${API_URL}/api/solicitudes-cotizacion/${solicitudId}`,
+                    {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            id_pedido: currentPedidoId,
+                            // ✅ Así debe quedar:
+                            nivel_urgencia: urgenciaFinal,
+                            id_operador: OPERADOR_ID,
+                            productos: productosPayload,
+                            estado_solicitud: mapEstado("procesando"), // → 'en_proceso'
+                        }),
+                    },
+                );
+
+                const updateText = await updateRes.text();
+                let updateJson: any = {};
+
+                try {
+                    updateJson = updateText ? JSON.parse(updateText) : {};
+                } catch {
+                    updateJson = {};
+                }
+
+                if (!updateRes.ok) {
+                    alert(
+                        updateJson.error ||
+                            updateJson.message ||
+                            `Error al actualizar la solicitud (${updateRes.status})`,
+                    );
+                    resetFinalizeBtn();
+                    return;
+                }
+                btn.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> Solicitudes generadas!`;
+                btn.disabled = false;
+
+                // ✅ Actualizar estado visual del pedido activo
+                const activoBtn = document.querySelector(
+                    ".pedido-item.active",
+                ) as HTMLElement;
+                if (activoBtn) {
+                    activoBtn.dataset.estado = "procesando";
+
+                    // Badge de estado en la lista izquierda
+                    const estadoBadge = activoBtn.querySelector(
+                        '[class*="text-error"],[class*="text-secondary"],[class*="text-outline"]',
+                    );
+                    if (estadoBadge) {
+                        estadoBadge.textContent = "en_proceso";
+                        estadoBadge.className =
+                            "text-10px font-bold uppercase text-secondary";
+                    }
+
+                    // Badge de solicitud generada (el chip verde/azul)
+                    const solChip = activoBtn.querySelector(
+                        '[class*="solicitud"]',
+                    ) as HTMLElement;
+                    if (!solChip) {
+                        const chip = document.createElement("div");
+                        chip.className =
+                            "mt-1.5 flex items-center gap-1 text-10px text-secondary font-semibold";
+                        chip.innerHTML = `<span class="material-symbols-outlined text-xs">receipt_long</span> Solicitud generada`;
+                        activoBtn.querySelector(".pl-2")?.appendChild(chip);
+                    }
+                }
+
+                // Badge del panel derecho
+                const stBadge = document.getElementById("detail-status-badge")!;
+                stBadge.textContent = "en_proceso";
+                stBadge.className =
+                    "px-3 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1 bg-secondary10 text-secondary";
+
+                // Mostrar el badge de "Solicitud generada" en el panel derecho
+                const solBadge = document.getElementById("solicitud-badge")!;
+                solBadge.classList.remove("hidden");
+                solBadge.classList.add("flex");
+                updateStatCounters();
+            } catch (err) {
+                console.error(err);
+                alert("Error de conexión. Intenta de nuevo.");
+                resetFinalizeBtn();
+            }
+        }
+
+        function resetFinalizeBtn() {
+            const btn = document.getElementById(
+                "btn-finalize",
+            ) as HTMLButtonElement;
+            btn.innerHTML =
+                '<span class="material-symbols-outlined text-base">send</span> Generar Solicitud a Mayoristas';
+            btn.disabled = false;
+            btn.className =
+                "w-full py-3 rounded-xl text-sm font-bold bg-gradient-to-br from-secondary to-secondary-container text-white hover:opacity-95 transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-secondary/20";
+        }
+
+        // ── Inicialización ─────────────────────────────────────────
+        document.addEventListener("DOMContentLoaded", () => {
+            // Clicks en pedidos
+            document.querySelectorAll(".pedido-item").forEach((btn) => {
+                btn.addEventListener("click", () =>
+                    selectPedido(btn as HTMLElement),
+                );
+            });
+
+            // Modo sugeridos/todos
+            document
+                .getElementById("btn-show-suggested")
+                ?.addEventListener("click", () => {
+                    showMode = "suggested";
+                    document.getElementById("btn-show-suggested")!.className =
+                        "mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-secondary/20 text-secondary";
+                    document.getElementById("btn-show-all")!.className =
+                        "mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-outline/10 text-outline hover:bg-outline/20 transition-colors";
+                    renderProducts();
+                });
+            document
+                .getElementById("btn-show-all")
+                ?.addEventListener("click", () => {
+                    showMode = "all";
+                    document.getElementById("btn-show-all")!.className =
+                        "mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-secondary/20 text-secondary";
+                    document.getElementById("btn-show-suggested")!.className =
+                        "mode-btn text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg bg-outline/10 text-outline hover:bg-outline/20 transition-colors";
+                    renderProducts();
+                });
+
+            // Sort
+            document
+                .getElementById("btn-sort-rating")
+                ?.addEventListener("click", () => {
+                    sortMode = "rating";
+                    renderProducts();
+                });
+            document
+                .getElementById("btn-sort-price")
+                ?.addEventListener("click", () => {
+                    sortMode = "price";
+                    renderProducts();
+                });
+
+            // Búsqueda
+            document
+                .getElementById("product-search")
+                ?.addEventListener("input", renderProducts);
+
+            // Finalizar
+            document
+                .getElementById("btn-finalize")
+                ?.addEventListener("click", finalizarCotizacion);
+        });
+    </script>
+</DashboardLayout>

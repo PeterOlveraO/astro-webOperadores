@@ -1,43 +1,136 @@
 ---
 const currentPath = Astro.url.pathname;
+const isAdmin = Astro.cookies.get('operador_is_admin')?.value === 'true';
 const navItems = [
   { icon: 'dashboard',       label: 'Dashboard',      href: '/dashboard'              },
   { icon: 'assignment',      label: 'Solicitudes',    href: '/dashboard/solicitudes'  },
   { icon: 'storefront',      label: 'Marketplace',    href: '/dashboard/marketplace'  },
   { icon: 'inventory_2',     label: 'Pedidos',        href: '/dashboard/pedidos'      },
   { icon: 'shopping_cart',   label: 'Carrito',        href: '/dashboard/carrito'      },
-  { icon: 'settings',        label: 'Settings',       href: '#'                       },
-  { icon: 'logout',          label: 'Cerrar Sesión',  href: '/'                       },
+  ...(isAdmin ? [{ icon: 'admin_panel_settings', label: 'Configuración', href: '/dashboard/config' }] : []),
+  { icon: 'logout', label: 'Cerrar Sesión', href: '/logout' },
 ];
 ---
 
-<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-[#f3f3f6] py-6 pl-4 z-50">
-  <div class="mb-10 px-4">
+<aside id="app-sidebar" class="sidebar-expanded h-screen fixed left-0 top-0 flex flex-col bg-[#f3f3f6] py-6 z-40 transition-all duration-300 ease-in-out overflow-hidden">
+
+  <!-- Logo -->
+  <div class="mb-10 px-4 overflow-hidden whitespace-nowrap">
     <h1 class="font-headline font-extrabold text-[#004d75] text-2xl tracking-tight">Coperativa</h1>
-    <p class="text-xs font-medium text-[#44474e] uppercase tracking-widest mt-1">Operator Portal</p>
+    <p class="sidebar-label text-xs font-medium text-[#44474e] uppercase tracking-widest mt-1 transition-all duration-200">Operator Portal</p>
   </div>
 
-  <nav class="flex-1 space-y-1 pr-4">
+  <!-- Nav -->
+  <nav class="flex-1 space-y-1 pr-3 overflow-hidden">
     {navItems.map((item) => {
       const isActive = currentPath === item.href || (item.href !== '/dashboard' && currentPath.startsWith(item.href));
       return isActive ? (
         <a
           href={item.href}
-          class="flex items-center gap-3 px-4 py-3 bg-white text-[#004d75] rounded-l-xl font-semibold transition-all duration-200 ease-in-out"
+          class="nav-link flex items-center gap-3 px-4 py-3 bg-white text-[#004d75] rounded-l-xl font-semibold transition-all duration-200 ease-in-out whitespace-nowrap overflow-hidden"
+          title={item.label}
         >
-          <span class="material-symbols-outlined">{item.icon}</span>
-          <span class="font-body text-sm">{item.label}</span>
+          <span class="material-symbols-outlined flex-shrink-0">{item.icon}</span>
+          <span class="sidebar-label font-body text-sm transition-all duration-200">{item.label}</span>
         </a>
       ) : (
         <a
           href={item.href}
-          class="flex items-center gap-3 px-4 py-3 text-[#44474e] hover:text-[#004d75] hover:bg-white/50 transition-all duration-200 ease-in-out"
+          class="nav-link flex items-center gap-3 px-4 py-3 text-[#44474e] hover:text-[#004d75] hover:bg-white/50 transition-all duration-200 ease-in-out whitespace-nowrap overflow-hidden"
+          title={item.label}
         >
-          <span class="material-symbols-outlined">{item.icon}</span>
-          <span class="font-body text-sm">{item.label}</span>
+          <span class="material-symbols-outlined flex-shrink-0">{item.icon}</span>
+          <span class="sidebar-label font-body text-sm transition-all duration-200">{item.label}</span>
         </a>
       );
     })}
   </nav>
 </aside>
 
+<!-- Botón toggle: fixed, fuera del aside para evitar overflow-hidden -->
+<button
+  id="sidebar-toggle"
+  class="fixed top-6 z-50 w-6 h-6 rounded-full bg-white border border-[#d0d0d8] flex items-center justify-center shadow-md hover:shadow-lg transition-all duration-300 text-[#004d75]"
+  title="Colapsar / Expandir"
+>
+  <span id="sidebar-toggle-icon" class="material-symbols-outlined" style="font-size:14px;">chevron_left</span>
+</button>
+
+<style>
+  #app-sidebar {
+    width: 16rem;
+  }
+  #app-sidebar.sidebar-collapsed {
+    width: 4.5rem;
+  }
+  #app-sidebar.sidebar-collapsed .sidebar-label {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+  }
+  #app-sidebar.sidebar-collapsed h1 {
+    font-size: 0;
+    height: 0;
+    margin: 0;
+    opacity: 0;
+  }
+  #app-sidebar.sidebar-collapsed p.sidebar-label {
+    display: none;
+  }
+  #app-sidebar.sidebar-collapsed .mb-10 {
+    margin-bottom: 1.5rem;
+  }
+  /* El botón se mueve junto con el sidebar */
+  #sidebar-toggle {
+    transition: left 0.3s ease-in-out, box-shadow 0.2s;
+  }
+</style>
+
+<script>
+  const sidebar = document.getElementById('app-sidebar')!;
+  const toggleBtn = document.getElementById('sidebar-toggle')!;
+  const toggleIcon = document.getElementById('sidebar-toggle-icon')!;
+  const main = document.querySelector('main') as HTMLElement | null;
+
+  const STORAGE_KEY = 'sidebar-collapsed';
+
+  const EXPANDED_W = 256;  // 16rem
+  const COLLAPSED_W = 72;  // 4.5rem
+
+  function positionToggle(collapsed: boolean) {
+    // Coloca el botón justo en el borde derecho del sidebar
+    const w = collapsed ? COLLAPSED_W : EXPANDED_W;
+    toggleBtn.style.left = `${w - 12}px`; // -12 = mitad del botón (24px/2)
+  }
+
+  function applyState(collapsed: boolean, animate = false) {
+    if (collapsed) {
+      sidebar.classList.add('sidebar-collapsed');
+      sidebar.classList.remove('sidebar-expanded');
+      toggleIcon.textContent = 'chevron_right';
+      if (main) main.style.marginLeft = `${COLLAPSED_W}px`;
+    } else {
+      sidebar.classList.remove('sidebar-collapsed');
+      sidebar.classList.add('sidebar-expanded');
+      toggleIcon.textContent = 'chevron_left';
+      if (main) main.style.marginLeft = `${EXPANDED_W}px`;
+    }
+
+    if (animate) {
+      // Mover el botón suavemente junto con el sidebar
+      setTimeout(() => positionToggle(collapsed), 0);
+    } else {
+      positionToggle(collapsed);
+    }
+  }
+
+  // Restaurar estado guardado
+  const saved = localStorage.getItem(STORAGE_KEY) === 'true';
+  applyState(saved, false);
+
+  toggleBtn.addEventListener('click', () => {
+    const isCollapsed = sidebar.classList.contains('sidebar-collapsed');
+    localStorage.setItem(STORAGE_KEY, String(!isCollapsed));
+    applyState(!isCollapsed, true);
+  });
+</script>

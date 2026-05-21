@@ -1,0 +1,995 @@
+---
+
+import DashboardLayout from '../../../layouts/DashboardLayout.astro';
+
+const API_URL = import.meta.env.PUBLIC_API_URL || 'http://localhost:5145';
+---
+
+<DashboardLayout title="Negociaciones Pendientes · Operador">
+  <div class="page-container">
+    
+    <!-- Header -->
+    <div class="page-header">
+      <nav class="breadcrumb">
+        <a href="/dashboard">Dashboard</a>
+        <span class="material-symbols-outlined">chevron_right</span>
+        <span class="current">Cotizaciones en Negociación</span>
+      </nav>
+      <h1 class="page-title">Panel de Negociación</h1>
+      <p class="page-subtitle">
+        Las <strong id="contador-negociaciones">cargando...</strong> cotizaciones esperando costos finales y margen de ganancia.
+      </p>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-primary">
+          <span class="material-symbols-outlined">handshake</span>
+        </div>
+        <div class="stat-content">
+          <p class="stat-label">En Negociación</p>
+          <h3 class="stat-value" id="stat-negociando">—</h3>
+          <p class="stat-desc">Cotizaciones activas</p>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-secondary">
+          <span class="material-symbols-outlined">attach_money</span>
+        </div>
+        <div class="stat-content">
+          <p class="stat-label">Valor Total</p>
+          <h3 class="stat-value" id="stat-valor">$0</h3>
+          <p class="stat-desc">En negociación</p>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon stat-icon-tertiary">
+          <span class="material-symbols-outlined">inventory_2</span>
+        </div>
+        <div class="stat-content">
+          <p class="stat-label">Productos</p>
+          <h3 class="stat-value" id="stat-productos">—</h3>
+          <p class="stat-desc">En todas las cotizaciones</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table Section -->
+    <div class="table-container">
+      <div class="table-header">
+        <h2>Cotizaciones Downlabs</h2>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID Cotización</th>
+              <th>Pedido Relacionado</th>
+              <th>Productos</th>
+              <th>Última Actualización</th>
+              <th class="text-center">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="negociaciones-tbody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL -->
+  <dialog id="modal-finalizar" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-icon">
+            <span class="material-symbols-outlined">point_of_sale</span>
+          </div>
+          <div>
+            <h3>Finalizar Propuesta Económica</h3>
+            <p class="modal-id" id="modal-id-display">ID: ---</p>
+          </div>
+        </div>
+        <button id="btn-close" class="modal-close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-left">
+          <div class="input-card">
+            <h4>
+              <span class="material-symbols-outlined">settings_input_component</span>
+              Variables de Costo
+            </h4>
+            <div class="input-group">
+              <label>Costo de Operación (Envío/Gestión)</label>
+              <div class="input-wrapper">
+                <span class="input-prefix">$</span>
+                <input type="number" id="input-costo-op" placeholder="0.00" step="0.01" />
+              </div>
+            </div>
+            <div class="input-group">
+              <label>Margen de Ganancia Downlabs (%)</label>
+              <div class="input-wrapper">
+                <span class="input-suffix">%</span>
+                <input type="number" id="input-ganancia" placeholder="15" step="0.1" value="15" />
+              </div>
+            </div>
+          </div>
+
+          <div class="input-card">
+            <h4>Productos en esta cotización</h4>
+            <div id="modal-productos-list" class="product-list"></div>
+          </div>
+        </div>
+
+        <div class="modal-right">
+          <div class="summary-card">
+            <p class="summary-label">Precio Final Sugerido al Cliente</p>
+            <h2 class="summary-total" id="display-total">$0.00</h2>
+            <div class="summary-details">
+              <div class="summary-row">
+                <span>Subtotal Productos:</span>
+                <span id="display-subtotal">$0.00</span>
+              </div>
+              <div class="summary-row">
+                <span>Costos Operativos:</span>
+                <span id="display-op-val">$0.00</span>
+              </div>
+              <div class="summary-row summary-profit">
+                <span>Utilidad Proyectada:</span>
+                <span id="display-profit">$0.00</span>
+              </div>
+            </div>
+          </div>
+
+          <button id="btn-guardar" class="btn-primary">
+            <span class="material-symbols-outlined">task_alt</span>
+            FINALIZAR Y PUBLICAR
+          </button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script is:inline>
+    const modal = document.getElementById('modal-finalizar');
+    const inputCostoOp = document.getElementById('input-costo-op');
+    const inputGanancia = document.getElementById('input-ganancia');
+    let currentCotId = null;
+    let subtotalProductos = 0;
+    let negociacionesData = [];
+    const API_URL = 'http://localhost:5145';
+
+    async function loadNegociaciones() {
+      try {
+        const res = await fetch(`${API_URL}/api/cotizaciones-downlabs?pageSize=200`);
+        const json = await res.json();
+        return json.data?.filter(c => c.estado === 'Negociando') || [];
+      } catch (e) {
+        console.error('Error:', e);
+        return [];
+      }
+    }
+
+    async function init() {
+      negociacionesData = await loadNegociaciones();
+      
+      document.getElementById('contador-negociaciones').textContent = negociacionesData.length;
+      document.getElementById('stat-negociando').textContent = negociacionesData.length;
+      
+      const totalValor = negociacionesData.reduce((acc, c) => {
+        return acc + (c.productos?.reduce((sum, p) => sum + ((p.precio_mayorista || 0) * p.cantidad), 0) || 0);
+      }, 0);
+      document.getElementById('stat-valor').textContent = '$' + totalValor.toLocaleString('es-MX', { minimumFractionDigits: 0 });
+      
+      const totalProductos = negociacionesData.reduce((acc, c) => acc + (c.productos?.reduce((sum, p) => sum + p.cantidad, 0) || 0), 0);
+      document.getElementById('stat-productos').textContent = totalProductos;
+      
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('negociaciones-tbody');
+      if (!tbody) return;
+      
+      if (negociacionesData.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="empty-state">
+              <span class="material-symbols-outlined">handshake</span>
+              <p>No hay negociaciones activas</p>
+              <span>Cuando una solicitud raw sea procesada, aparecerá aquí.</span>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = negociacionesData.map(c => {
+        const productosCount = c.productos?.reduce((sum, p) => sum + p.cantidad, 0) || 0;
+        return `
+          <tr>
+            <td>
+              <div class="cell-id">
+                <span class="material-symbols-outlined">description</span>
+                <span>${c.id_cotizacion_downlabs?.slice(0, 13) || '—'}</span>
+              </div>
+            </td>
+            <td><span class="cell-text">Pedido Raw: ${c.pedido_raw_id?.slice(0, 8) || '—'}</span></td>
+            <td><span class="badge">${productosCount} productos</span></td>
+            <td><span class="cell-date">${formatDate(c.updated_at)}</span></td>
+            <td class="text-center">
+              <button class="btn-action" data-id="${c.id_cotizacion_downlabs}">
+                <span class="material-symbols-outlined">edit_note</span>
+                Finalizar
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      document.querySelectorAll('.btn-action').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.id;
+          const data = negociacionesData.find(n => n.id_cotizacion_downlabs === id);
+          if (!data) return;
+
+          currentCotId = id;
+          document.getElementById('modal-id-display').textContent = `ID: ${id.slice(0, 20)}`;
+          
+          subtotalProductos = data.productos?.reduce((acc, p) => acc + ((p.precio_mayorista || 0) * p.cantidad), 0) || 0;
+
+          const listContainer = document.getElementById('modal-productos-list');
+          listContainer.innerHTML = data.productos?.map(p => `
+            <div class="product-item">
+              <span class="material-symbols-outlined">shopping_bag</span>
+              <span>ID: ${(p.id_producto || '').slice(0,12)}</span>
+              <span class="product-qty">x${p.cantidad}</span>
+            </div>
+          `).join('') || '<p class="no-products">Sin productos</p>';
+
+          inputCostoOp.value = '';
+          inputGanancia.value = '15';
+          updateCalculations();
+          modal.showModal();
+        });
+      });
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '—';
+      return new Date(dateStr).toLocaleDateString('es-MX', { 
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+      });
+    }
+
+    function updateCalculations() {
+      const costoOp = parseFloat(inputCostoOp.value || 0);
+      const margenPerc = parseFloat(inputGanancia.value || 0) / 100;
+      const subtotalConOp = subtotalProductos + costoOp;
+      const precioFinal = subtotalConOp * (1 + margenPerc);
+      const utilidad = precioFinal - subtotalConOp;
+
+      document.getElementById('display-total').textContent = `$${precioFinal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+      document.getElementById('display-subtotal').textContent = `$${subtotalProductos.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+      document.getElementById('display-op-val').textContent = `$${costoOp.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+      document.getElementById('display-profit').textContent = `$${utilidad.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+    }
+
+    inputCostoOp.addEventListener('input', updateCalculations);
+    inputGanancia.addEventListener('input', updateCalculations);
+    document.getElementById('btn-close').addEventListener('click', () => modal.close());
+
+    document.getElementById('btn-guardar').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-guardar');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="material-symbols-outlined spin">sync</span> PUBLICANDO...';
+
+      const payload = {
+        costo_operacion: parseFloat(inputCostoOp.value || 0),
+        ganancia_down: parseFloat(inputGanancia.value || 0),
+        estado: 'listo'
+      };
+
+      try {
+        const res = await fetch(`${API_URL}/api/cotizaciones-downlabs/${currentCotId}/finalizar`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          alert("¡Cotización finalizada con éxito!");
+          window.location.reload();
+        } else {
+          alert("Error al guardar.");
+          btn.disabled = false;
+          btn.innerHTML = '<span class="material-symbols-outlined">task_alt</span> FINALIZAR Y PUBLICAR';
+        }
+      } catch (e) {
+        alert("Error de conexión.");
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-outlined">task_alt</span> FINALIZAR Y PUBLICAR';
+      }
+    });
+
+    init();
+  </script>
+
+  <style>
+    /* Page Container */
+    .page-container {
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* Header */
+    .page-header {
+      margin-bottom: 0.5rem;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--color-outline);
+      margin-bottom: 1rem;
+    }
+
+    .breadcrumb a {
+      color: var(--color-outline);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .breadcrumb a:hover {
+      color: var(--color-primary);
+    }
+
+    .breadcrumb .current {
+      color: var(--color-primary);
+      font-weight: 500;
+    }
+
+    .breadcrumb .material-symbols-outlined {
+      font-size: 1rem;
+    }
+
+    .page-title {
+      font-family: var(--font-headline);
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--color-on-surface);
+      letter-spacing: -0.025em;
+      margin: 0;
+    }
+
+    .page-subtitle {
+      color: var(--color-on-surface-variant);
+      margin-top: 0.25rem;
+    }
+
+    .page-subtitle strong {
+      color: var(--color-primary);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--color-surface-container-lowest);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      transition: background-color 0.3s;
+      border: 1px solid transparent;
+    }
+
+    .stat-card:hover {
+      background: var(--color-surface-bright);
+    }
+
+    .stat-icon {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stat-icon-primary {
+      background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+    }
+
+    .stat-icon-primary .material-symbols-outlined {
+      color: var(--color-primary);
+    }
+
+    .stat-icon-secondary {
+      background: color-mix(in srgb, var(--color-secondary) 5%, transparent);
+    }
+
+    .stat-icon-secondary .material-symbols-outlined {
+      color: var(--color-secondary);
+    }
+
+    .stat-icon-tertiary {
+      background: color-mix(in srgb, var(--color-tertiary) 5%, transparent);
+    }
+
+    .stat-icon-tertiary .material-symbols-outlined {
+      color: var(--color-tertiary);
+    }
+
+    .stat-content {
+      flex: 1;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-outline);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 0;
+    }
+
+    .stat-value {
+      font-family: var(--font-headline);
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--color-on-surface);
+      margin: 0.25rem 0;
+    }
+
+    .stat-desc {
+      font-size: 11px;
+      color: var(--color-on-surface-variant);
+      margin: 0;
+    }
+
+    /* Table */
+    .table-container {
+      background: var(--color-surface-container-lowest);
+      border-radius: 0.75rem;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--color-outline-variant) 10%, transparent);
+    }
+
+    .table-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 10%, transparent);
+      background: var(--color-surface-container-low);
+    }
+
+    .table-header h2 {
+      font-family: var(--font-headline);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--color-on-surface);
+      margin: 0;
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    .data-table thead {
+      background: var(--color-surface-container-low);
+    }
+
+    .data-table th {
+      padding: 1rem 1.5rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      color: var(--color-outline);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .data-table td {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 10%, transparent);
+    }
+
+    .data-table tbody tr {
+      transition: background-color 0.2s;
+    }
+
+    .data-table tbody tr:hover {
+      background: color-mix(in srgb, var(--color-surface-container-low) 50%, transparent);
+    }
+
+    .cell-id {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .cell-id .material-symbols-outlined {
+      color: var(--color-primary);
+      font-size: 1.25rem;
+    }
+
+    .cell-id span:last-child {
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-primary);
+    }
+
+    .cell-text {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--color-on-surface);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-secondary);
+      background: color-mix(in srgb, var(--color-secondary-container) 30%, transparent);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+    }
+
+    .badge .material-symbols-outlined {
+      font-size: 0.875rem;
+    }
+
+    .cell-date {
+      font-size: 0.75rem;
+      color: var(--color-outline);
+    }
+
+    .btn-action {
+      background: var(--color-primary);
+      color: white;
+      font-weight: 700;
+      font-size: 0.75rem;
+      padding: 0.625rem 1rem;
+      border-radius: 0.5rem;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-action:hover {
+      transform: scale(1.02);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .btn-action:active {
+      transform: scale(0.95);
+    }
+
+    .btn-action .material-symbols-outlined {
+      font-size: 1rem;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 1.5rem !important;
+      color: var(--color-outline);
+    }
+
+    .empty-state .material-symbols-outlined {
+      font-size: 3rem;
+      opacity: 0.2;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    .empty-state p {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--color-on-surface);
+      margin: 0;
+    }
+
+    .empty-state span {
+      font-size: 0.875rem;
+    }
+
+    /* Modal */
+    .modal {
+      background: transparent;
+      padding: 0;
+      margin: auto;
+      border: none;
+    }
+
+    .modal::backdrop {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-content {
+      background: var(--color-surface-container-lowest);
+      width: 100%;
+      max-width: 56rem;
+      border-radius: 1.5rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      border: 1px solid color-mix(in srgb, var(--color-outline-variant) 20%, transparent);
+      animation: modalZoom 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes modalZoom {
+      from { transform: scale(0.9); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .modal-header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 10%, transparent);
+      background: var(--color-surface-container-low);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .modal-icon {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 0.75rem;
+      background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-icon .material-symbols-outlined {
+      color: var(--color-primary);
+    }
+
+    .modal-title-group h3 {
+      font-family: var(--font-headline);
+      font-size: 1.25rem;
+      font-weight: 900;
+      color: var(--color-on-surface);
+      margin: 0;
+    }
+
+    .modal-id {
+      font-size: 0.75rem;
+      color: var(--color-outline);
+      font-family: ui-monospace, monospace;
+      margin: 0;
+    }
+
+    .modal-close {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    .modal-close:hover {
+      background: color-mix(in srgb, var(--color-error) 10%, transparent);
+      color: var(--color-error);
+    }
+
+    .modal-body {
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    .modal-left, .modal-right {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .input-card {
+      background: var(--color-surface-container-low);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      border: 1px solid color-mix(in srgb, var(--color-outline-variant) 10%, transparent);
+    }
+
+    .input-card h4 {
+      font-size: 0.875rem;
+      font-weight: 900;
+      color: var(--color-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 0 0 1rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .input-card h4 .material-symbols-outlined {
+      font-size: 1rem;
+    }
+
+    .input-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .input-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-outline);
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-wrapper input {
+      width: 100%;
+      padding: 1rem;
+      border: none;
+      border-radius: 0.75rem;
+      background: var(--color-surface-container-highest);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--color-on-surface);
+      outline: none;
+      transition: box-shadow 0.2s;
+    }
+
+    .input-wrapper input:focus {
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
+    }
+
+    .input-prefix {
+      position: absolute;
+      left: 1rem;
+      color: var(--color-outline);
+      font-weight: 600;
+    }
+
+    .input-suffix {
+      position: absolute;
+      right: 1rem;
+      color: var(--color-outline);
+      font-weight: 600;
+    }
+
+    .input-wrapper input[type="number"] {
+      padding-left: 2.5rem;
+    }
+
+    .input-wrapper input[type="number"] + .input-suffix {
+      right: 2.5rem;
+    }
+
+    .product-list {
+      max-height: 10rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding-right: 0.5rem;
+    }
+
+    .product-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem;
+      background: var(--color-surface-container-highest);
+      border-radius: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .product-item .material-symbols-outlined {
+      color: var(--color-primary);
+      font-size: 1rem;
+    }
+
+    .product-item span:nth-child(2) {
+      flex: 1;
+      color: var(--color-on-surface);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .product-qty {
+      font-weight: 700;
+      color: var(--color-primary) !important;
+    }
+
+    .no-products {
+      font-size: 0.75rem;
+      color: var(--color-outline);
+      text-align: center;
+      padding: 1rem;
+    }
+
+    .summary-card {
+      background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+      border-radius: 1rem;
+      padding: 2rem;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 10%, transparent);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .summary-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-primary);
+      text-transform: uppercase;
+      letter-spacing: -0.05em;
+      margin: 0 0 0.5rem 0;
+    }
+
+    .summary-total {
+      font-family: var(--font-headline);
+      font-size: 3rem;
+      font-weight: 900;
+      color: var(--color-on-surface);
+      margin: 0 0 1.5rem 0;
+    }
+
+    .summary-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      text-align: left;
+      border-top: 1px solid color-mix(in srgb, var(--color-primary) 10%, transparent);
+      padding-top: 1.5rem;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.875rem;
+    }
+
+    .summary-row span:first-child {
+      color: var(--color-outline);
+    }
+
+    .summary-row span:last-child {
+      font-weight: 700;
+      color: var(--color-on-surface);
+    }
+
+    .summary-profit span:first-child {
+      font-weight: 700;
+      color: var(--color-primary);
+    }
+
+    .summary-profit span:last-child {
+      font-weight: 900;
+      color: var(--color-primary);
+    }
+
+    .btn-primary {
+      width: 100%;
+      background: var(--color-primary);
+      color: white;
+      font-weight: 900;
+      padding: 1.25rem;
+      border-radius: 0.75rem;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      font-size: 0.875rem;
+      box-shadow: 0 10px 15px -3px color-mix(in srgb, var(--color-primary) 30%, transparent);
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-top: 1.5rem;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: scale(1.02);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: scale(0.95);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .modal-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .page-container {
+        padding: 1rem;
+      }
+
+      .page-title {
+        font-size: 1.75rem;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 1rem;
+      }
+
+      .badge {
+        font-size: 0.625rem;
+        padding: 0.25rem 0.5rem;
+      }
+    }
+  </style>
+</DashboardLayout>

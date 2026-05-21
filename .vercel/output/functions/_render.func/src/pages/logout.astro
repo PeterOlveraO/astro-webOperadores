@@ -1,0 +1,11 @@
+---
+// Borrar todas las cookies de sesión del operador
+Astro.cookies.delete('id_operador',   { path: '/' });
+Astro.cookies.delete('operador_id',   { path: '/' });
+Astro.cookies.delete('operador_email',{ path: '/' });
+Astro.cookies.delete('operador_rol',  { path: '/' });
+Astro.cookies.delete('operador_is_admin', { path: '/' });
+Astro.cookies.delete('access_token',  { path: '/' });
+
+return Astro.redirect('/');
+---
